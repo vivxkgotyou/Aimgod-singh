@@ -9,6 +9,7 @@ from contextlib import suppress
 from typing import Optional, Dict
 from flask import Flask, render_template_string
 from telethon import TelegramClient, events, types, functions, errors
+from telethon.sessions import StringSession  # StringSession Import
 from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.tl.functions.channels import JoinChannelRequest
 from gtts import gTTS
@@ -114,12 +115,14 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 # ================= CONFIGURATION =================
-API_ID = 27220803
-API_HASH = 'a879e56a7d79c4b4396ae9190d87e365'
+API_ID = int(os.environ.get("API_ID", 27220803))
+API_HASH = os.environ.get("API_HASH", 'a879e56a7d79c4b4396ae9190d87e365')
+
+# 👉 APNI PROVIDED SESSION STRING ADD KR DI GAYI HAI
+SESSION_STRING = os.environ.get("SESSION_STRING", "1BVtsOHcBuxS6GfFsZLij2Z8eo025IKYLIlqrd2Lw3JOVrH5CuGdqA7MsTeLmZww4HyUa4DRYg088xmQp-oJoHhnKd-Egpbiwuqoz0Oe6QChkqklGn-8FBapOXx1rMO3Km8NjGXybdAHxa2dXGzwEoFkR_utbeNLvk0cR8q6aUsoo9iyzHPmgpJvhhwTqrZNT2-lFvvSt2fAwtAPmoizYozlwb3xJb27AYpUSNpFRd3ZeZlemxzCVFjJ9s5AVipIkycAWApv2wyvk7JKSSHCu9BDGEfWpLA7ZFXbze8AdXxbl9zXpyefd_7dwgi9E6buFlqUhy50UbiqSMaaksSXzlx0-ZCS5vos=")
 
 SUPER_OWNERS = {5427447587, 8925057904}
 
-SESSION_NAME = 'aimgod_final'
 IMAGE_DATA_FILE = 'image_data.json'
 IMAGE_FOLDER = 'image_replies'
 GAALI_FILE = 'gaali.txt'
@@ -129,7 +132,8 @@ BANNER_FOLDER = 'banners'
 os.makedirs(IMAGE_FOLDER, exist_ok=True)
 os.makedirs(BANNER_FOLDER, exist_ok=True)
 
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH, auto_reconnect=True, connection_retries=None)
+# Client initialized using StringSession
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, auto_reconnect=True, connection_retries=None)
 
 # --- Memory Core ---
 snipe_data = {}
@@ -222,7 +226,7 @@ def save_image_data():
         with open(IMAGE_DATA_FILE, 'w') as f:
             json.dump(meta, f, indent=2)
     except Exception as e:
-        print(f"?? Save img error: {e}")
+        print(f"Save img error: {e}")
 
 def load_image_data():
     global user_images, image_delay, photo_mode
@@ -251,9 +255,9 @@ def load_image_data():
                 for iid, info in imgs.items():
                     if os.path.exists(info['path']):
                         user_images[(cid, uid)][iid] = {'path': info['path'], 'caption': info.get('caption', '')}
-        print(f"? Loaded images for {len(user_images)} users.")
+        print(f"Loaded images for {len(user_images)} users.")
     except Exception as e:
-        print(f"?? Load img error: {e}")
+        print(f"Load img error: {e}")
 
 # ================= HELPERS =================
 async def safe_respond(event, text):
@@ -263,7 +267,7 @@ async def safe_respond(event, text):
         try:
             await client.send_message(event.chat_id, text)
         except Exception as e2:
-            print(f"? safe_respond failed: edit={e1} send={e2}")
+            print(f"safe_respond failed: edit={e1} send={e2}")
 
 async def parse_user_from_arg(arg, event):
     arg = arg.strip()
@@ -309,7 +313,7 @@ def load_gaali_lines():
             lines = [l.strip() for l in f if l.strip()]
         return lines if lines else None
     except Exception as e:
-        print(f"?? gaali read error: {e}")
+        print(f"gaali read error: {e}")
         return None
 
 def load_hunt_lines():
@@ -320,7 +324,7 @@ def load_hunt_lines():
             lines = [l.strip() for l in f if l.strip()]
         return lines if lines else None
     except Exception as e:
-        print(f"?? hunt read error: {e}")
+        print(f"hunt read error: {e}")
         return None
 
 def get_next_gaali(chat_id):
@@ -386,7 +390,7 @@ async def kick_user(chat_id, user_id):
 
 # ================= HUNT LOOP =================
 async def hunt_loop(chat_id, target_user_id, delay):
-    print(f"?? Hunt commenced ? user {target_user_id} in chat {chat_id}")
+    print(f"Hunt commenced user {target_user_id} in chat {chat_id}")
     try:
         user = await client.get_entity(target_user_id)
     except:
@@ -395,12 +399,12 @@ async def hunt_loop(chat_id, target_user_id, delay):
     while True:
         key = (chat_id, target_user_id)
         if key not in hunt_data or not hunt_data[key].get('active'):
-            print(f"?? Hunt concluded")
+            print(f"Hunt concluded")
             break
 
         line = get_next_hunt_line(chat_id)
         if not line:
-            print(f"?? hunt.txt empty")
+            print(f"hunt.txt empty")
             await asyncio.sleep(2)
             continue
 
@@ -411,17 +415,17 @@ async def hunt_loop(chat_id, target_user_id, delay):
                 mention = f'<a href="tg://user?id={target_user_id}">User</a>'
             msg = f"{mention} {line}"
             await client.send_message(chat_id, msg, parse_mode='html')
-            print(f"?? Hunt message dispatched")
+            print(f"Hunt message dispatched")
         except errors.FloodWaitError as fw:
-            print(f"? Rate limited: {fw.seconds}s")
+            print(f"Rate limited: {fw.seconds}s")
             await asyncio.sleep(fw.seconds)
         except Exception as e:
-            print(f"? Hunt error: {type(e).__name__}: {e}")
+            print(f"Hunt error: {type(e).__name__}: {e}")
             break
 
         await asyncio.sleep(delay)
 
-    print(f"?? Hunt loop terminated")
+    print(f"Hunt loop terminated")
     hunt_tasks.pop(chat_id, None)
 
 # ================= MENU =================
@@ -453,7 +457,7 @@ MENU_TEXT = """
 `-stoppulse` (reply) — Detach pulse
 `-pulselist` — Display active pulses
 
-**?? ?????? ??????????**
+**?? ???????? ??????????**
 `-target` (reply/mention/id) — Designate target
 `-stoptarget` — Release target
 `-targetdelay <sec>` — Adjust response delay
@@ -507,7 +511,7 @@ async def unified_handler(event):
     # ==========================================
     if raw_text.startswith('-'):
         if not (sender_id in SUPER_OWNERS or sender_id == host_account_id or sender_id in sudo_users):
-            print(f"?? Unauthorized attempt by ID: {sender_id}")
+            print(f"Unauthorized attempt by ID: {sender_id}")
             return
 
         cmd = raw_text[1:].split(' ', 1)
@@ -540,7 +544,7 @@ async def unified_handler(event):
                         )
                         return
                     except Exception as e:
-                        print(f"?? Banner send failed: {e}")
+                        print(f"Banner send failed: {e}")
                 await safe_respond(event, MENU_TEXT)
 
             elif cmd_name == 'latency':
@@ -564,98 +568,98 @@ async def unified_handler(event):
                     jitter = 0.0
 
                 if ping < 100:
-                    status = "`?x???????`"
+                    status = "`EXCELLENT`"
                 elif ping < 200:
-                    status = "`????`"
+                    status = "`GOOD`"
                 elif ping < 400:
-                    status = "`??????????`"
+                    status = "`MODERATE`"
                 else:
-                    status = "`????`"
+                    status = "`POOR`"
 
                 await safe_respond(event,
-                    f"??? **Satellite relay:** `{ping}ms`\n"
-                    f"?? **Average:** `{avg}ms` | **Jitter:** `{jitter}ms`\n"
-                    f"?? **Connection status:** {status}"
+                    f"📡 **Satellite relay:** `{ping}ms`\n"
+                    f"⚡ **Average:** `{avg}ms` | **Jitter:** `{jitter}ms`\n"
+                    f"🌐 **Connection status:** {status}"
                 )
 
             elif cmd_name == 'flow' and cmd_args:
                 try:
                     current_speed = int(cmd_args) / 1000
-                    await safe_respond(event, f"?? **Attack flow rate calibrated to** `{cmd_args}ms` — Synchronization complete.")
+                    await safe_respond(event, f"⚙️ **Attack flow rate calibrated to** `{cmd_args}ms` — Synchronization complete.")
                 except:
-                    await safe_respond(event, "? **Invalid parameter.** Please supply a numeric interval.")
+                    await safe_respond(event, "⚠️ **Invalid parameter.** Please supply a numeric interval.")
 
             elif cmd_name == 'status':
                 lines = []
 
                 if vortex_active.get(chat_id):
-                    lines.append("• ?? **Vortex Engine** ? `???????`")
+                    lines.append("• 🌀 **Vortex Engine** ➔ `ACTIVE`")
                 if spam_active.get(chat_id):
-                    lines.append("• ?? **Burst Barrage** ? `???????`")
+                    lines.append("• 💥 **Burst Barrage** ➔ `ACTIVE`")
 
                 chat_pulses = list_pulses(chat_id)
                 if chat_pulses:
-                    lines.append(f"• ?? **Active Pulses** ? `{len(chat_pulses)} ?????`")
+                    lines.append(f"• 🎯 **Active Pulses** ➔ `{len(chat_pulses)} Users`")
 
                 chat_hunts = [k for k, d in hunt_data.items() if k[0] == chat_id and d.get('active')]
                 if chat_hunts:
-                    lines.append(f"• ?? **Active Hunts** ? `{len(chat_hunts)} ???????`")
+                    lines.append(f"• 🏹 **Active Hunts** ➔ `{len(chat_hunts)} Targets`")
 
                 chat_targets = [k for k, d in target_data.items() if k[0] == chat_id and d.get('active')]
                 if chat_targets:
-                    lines.append(f"• ?? **Active Targets** ? `{len(chat_targets)} ?????`")
+                    lines.append(f"• 🎯 **Active Targets** ➔ `{len(chat_targets)} Users`")
 
                 chat_snipes = [k for k in snipe_data if k[0] == chat_id]
                 if chat_snipes:
-                    lines.append(f"• ?? **Armed Snipes** ? `{len(chat_snipes)} ???????`")
+                    lines.append(f"• 🎯 **Armed Snipes** ➔ `{len(chat_snipes)} Targets`")
 
                 chat_img_replies = [k for k in image_reply_active if k[0] == chat_id]
                 if chat_img_replies:
-                    lines.append(f"• ??? **Image Protocols** ? `{len(chat_img_replies)} ?????`")
+                    lines.append(f"• 🖼️ **Image Protocols** ➔ `{len(chat_img_replies)} Users`")
 
                 if chat_id in lock_data:
-                    lines.append("• ?? **Chat Lock** ? `???????`")
+                    lines.append("• 🔒 **Chat Lock** ➔ `ENGAGED`")
 
                 if chat_id in global_mute_users and global_mute_users[chat_id]:
-                    lines.append(f"• ?? **Muted Users** ? `{len(global_mute_users[chat_id])}`")
+                    lines.append(f"• 🔇 **Muted Users** ➔ `{len(global_mute_users[chat_id])}`")
 
                 if chat_id in blacklist and blacklist[chat_id]:
-                    lines.append(f"• ?? **Blacklisted** ? `{len(blacklist[chat_id])}`")
+                    lines.append(f"• 🚫 **Blacklisted** ➔ `{len(blacklist[chat_id])}`")
 
                 banner_count = len(list_banners())
                 if banner_count:
-                    lines.append(f"• ?? **Saved Banners** ? `{banner_count}`")
+                    lines.append(f"• 🖼️ **Saved Banners** ➔ `{banner_count}`")
 
                 if not lines:
-                    await safe_respond(event, "**?? No active protocols detected in this chat.**\nAll systems are currently idle.")
+                    await safe_respond(event, "**ℹ️ No active protocols detected in this chat.**\nAll systems are currently idle.")
                     return
 
                 header = "**?----------------------------------------------?**\n"
-                header += "**     ?? ???? ???????? ?????? ??**\n"
+                header += "**     ⚡ LIVE PROTOCOL STATUS ⚡**\n"
                 header += "**?----------------------------------------------?**\n\n"
                 body = "\n".join(lines)
                 footer = "\n\n**----------------------------------------------**\n"
-                footer += f"**?? ???? :** `{chat_id}`\n"
-                footer += "**? ??????? ?? ?????? ?**"
+                footer += f"**📍 Chat ID:** `{chat_id}`\n"
+                footer += "**⚡ AIMGOD ENGINE ACTIVE ⚡**"
                 await safe_respond(event, header + body + footer)
 
             # ===== BANNER SYSTEM =====
             elif cmd_name == 'banner':
                 if not cmd_args:
-                    await safe_respond(event, "? **Usage:** `-banner <id>` — reply to a photo or video.")
+                    await safe_respond(event, "⚠️ **Usage:** `-banner <id>` — reply to a photo or video.")
                     return
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a photo or video to save it as banner.**")
+                    await safe_respond(event, "⚠️ **Reply to a photo or video to save it as banner.**")
                     return
                 reply = await event.get_reply_message()
                 if not reply:
-                    await safe_respond(event, "? **No media detected in reply.**")
+                    await safe_respond(event, "⚠ **No media detected in reply.**")
                     return
                 is_photo = bool(reply.photo)
                 is_video = bool(reply.video)
                 is_doc_media = bool(reply.document and reply.document.mime_type and reply.document.mime_type.startswith(('image/', 'video/')))
                 if not (is_photo or is_video or is_doc_media):
-                    await safe_respond(event, "? **Only photos or videos can be saved as banner.**")
+                    await safe_respond(event, "⚠️ **Only photos or videos can be saved as banner.**")
                     return
                 banner_id = cmd_args.strip().split()[0]
                 existing = get_banner_by_id(banner_id)
@@ -675,18 +679,18 @@ async def unified_handler(event):
                 try:
                     downloaded = await client.download_media(reply, file=path)
                     if not downloaded:
-                        await safe_respond(event, "? **Download failed.**")
+                        await safe_respond(event, "⚠️ **Download failed.**")
                         return
-                    await safe_respond(event, f"?? **Banner `{banner_id}` saved successfully.**\nTotal banners: `{len(list_banners())}`")
+                    await safe_respond(event, f"🖼️ **Banner `{banner_id}` saved successfully.**\nTotal banners: `{len(list_banners())}`")
                 except Exception as e:
-                    await safe_respond(event, f"? **Banner save failed:** `{str(e)[:80]}`")
+                    await safe_respond(event, f"⚠ **Banner save failed:** `{str(e)[:80]}`")
 
             elif cmd_name == 'bannerlist':
                 banners = list_banners()
                 if not banners:
-                    await safe_respond(event, "?? **No banners saved yet.**")
+                    await safe_respond(event, "🖼️ **No banners saved yet.**")
                     return
-                text = "?? **Saved Banner Registry**\n\n"
+                text = "🖼️ **Saved Banner Registry**\n\n"
                 for b in banners:
                     text += f"• `{b}`\n"
                 text += f"\n**Total:** `{len(banners)}`"
@@ -695,7 +699,7 @@ async def unified_handler(event):
             elif cmd_name == 'clearbanner':
                 banners = list_banners()
                 if not banners:
-                    await safe_respond(event, "?? **No banners to clear.**")
+                    await safe_respond(event, "🖼️ **No banners to clear.**")
                     return
                 count = 0
                 for f in banners:
@@ -704,62 +708,62 @@ async def unified_handler(event):
                         count += 1
                     except:
                         pass
-                await safe_respond(event, f"??? **Banner arsenal purged.** `{count}` banner(s) deleted.")
+                await safe_respond(event, f"🖼️ **Banner arsenal purged.** `{count}` banner(s) deleted.")
 
             # ===== PULSE SYSTEM =====
             elif cmd_name == 'pulse':
                 if not cmd_args or not event.is_reply:
-                    await safe_respond(event, "? **Usage:** `-pulse <emoji>` (reply to a user to engage).")
+                    await safe_respond(event, "⚠️ **Usage:** `-pulse <emoji>` (reply to a user to engage).")
                     return
                 reply_msg = await event.get_reply_message()
                 if not reply_msg or not reply_msg.sender_id:
-                    await safe_respond(event, "? **No target detected.** Reply to a user to proceed.")
+                    await safe_respond(event, "⚠️ **No target detected.** Reply to a user to proceed.")
                     return
                 emoji = cmd_args.strip().split()[0]
                 set_pulse(chat_id, reply_msg.sender_id, emoji)
 
                 if reply_msg.sender_id == host_account_id:
-                    await safe_respond(event, f"?? **Self-pulse armed.** All your messages will now be greeted with `{emoji}`.\nSend any message to test.")
+                    await safe_respond(event, f"🎯 **Self-pulse armed.** All your messages will now be greeted with `{emoji}`.\nSend any message to test.")
                 else:
-                    await safe_respond(event, f"?? **Pulse injected successfully.**\nEvery incoming message from this user will now be greeted with `{emoji}`.")
+                    await safe_respond(event, f"🎯 **Pulse injected successfully.**\nEvery incoming message from this user will now be greeted with `{emoji}`.")
 
             elif cmd_name == 'stoppulse':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Action requires a reply to a user.**")
+                    await safe_respond(event, "⚠️ **Action requires a reply to a user.**")
                     return
                 reply_msg = await event.get_reply_message()
                 if not reply_msg or not reply_msg.sender_id:
-                    await safe_respond(event, "? **No target detected.**")
+                    await safe_respond(event, "⚠️ **No target detected.**")
                     return
                 result = remove_pulse(chat_id, reply_msg.sender_id)
                 if result:
-                    await safe_respond(event, "?? **Pulse detached.** Target has been released from reaction protocol.")
+                    await safe_respond(event, "🎯 **Pulse detached.** Target has been released from reaction protocol.")
                 else:
-                    await safe_respond(event, "?? **No active pulse exists for this user.**")
+                    await safe_respond(event, "🎯 **No active pulse exists for this user.**")
 
             elif cmd_name == 'pulselist':
                 pulses = list_pulses(chat_id)
                 if not pulses:
-                    await safe_respond(event, "?? **No active pulses registered in this chat.**")
+                    await safe_respond(event, "🎯 **No active pulses registered in this chat.**")
                     return
-                text = "?? **Active Pulse Registry**\n\n"
+                text = "🎯 **Active Pulse Registry**\n\n"
                 for (c, uid), emoji in pulses.items():
                     try:
                         u = await client.get_entity(uid)
                         name = u.first_name or "Unknown"
                     except:
                         name = "Unknown"
-                    text += f"• **{name}** `({uid})` ? `{emoji}`\n"
+                    text += f"• **{name}** `({uid})` ➔ `{emoji}`\n"
                 await safe_respond(event, text)
 
             # ===== HUNT SYSTEM =====
             elif cmd_name == 'hunt':
                 target = await get_user_from_reply(event)
                 if not target:
-                    await safe_respond(event, "? **No target detected.** Reply to a user with `-hunt` to commence pursuit.")
+                    await safe_respond(event, "⚠️ **No target detected.** Reply to a user with `-hunt` to commence pursuit.")
                     return
                 if not load_hunt_lines():
-                    await safe_respond(event, f"? **Tactical arsenal empty** — `{HUNT_FILE}` not found or blank.")
+                    await safe_respond(event, f"⚠️ **Tactical arsenal empty** — `{HUNT_FILE}` not found or blank.")
                     return
                 hkey = (chat_id, target)
                 if hkey not in hunt_data:
@@ -778,7 +782,7 @@ async def unified_handler(event):
                 task = asyncio.create_task(hunt_loop(chat_id, target, delay))
                 hunt_tasks[chat_id] = task
                 
-                await safe_respond(event, f"?? **Hunt protocol initiated on {name}.**\nResponse interval: `{delay}s` — Use `-stophunt` to terminate.")
+                await safe_respond(event, f"🏹 **Hunt protocol initiated on {name}.**\nResponse interval: `{delay}s` — Use `-stophunt` to terminate.")
 
             elif cmd_name == 'stophunt':
                 if hunt_tasks.get(chat_id):
@@ -788,12 +792,12 @@ async def unified_handler(event):
                 to_del = [k for k in hunt_data if k[0] == chat_id]
                 for k in to_del:
                     hunt_data[k]['active'] = False
-                await safe_respond(event, "?? **Hunt protocol terminated.** All active pursuits have been halted.")
+                await safe_respond(event, "🏹 **Hunt protocol terminated.** All active pursuits have been halted.")
 
             elif cmd_name == 'huntdelay':
                 target = await get_user_from_reply(event)
                 if not target:
-                    await safe_respond(event, "? **Reply to a target to calibrate the interval.**")
+                    await safe_respond(event, "⚠️ **Reply to a target to calibrate the interval.**")
                     return
                 try:
                     d = float(cmd_args.strip())
@@ -808,90 +812,90 @@ async def unified_handler(event):
                         old.cancel()
                         new_task = asyncio.create_task(hunt_loop(chat_id, target, d))
                         hunt_tasks[chat_id] = new_task
-                    await safe_respond(event, f"?? **Hunt interval synchronized to** `{d}s`. Protocol adjusted successfully.")
+                    await safe_respond(event, f"🏹 **Hunt interval synchronized to** `{d}s`. Protocol adjusted successfully.")
                 except:
-                    await safe_respond(event, "? **Malformed value.** Example: `-huntdelay 1.5`")
+                    await safe_respond(event, "⚠️ **Malformed value.** Example: `-huntdelay 1.5`")
 
             elif cmd_name == 'huntlist':
                 chat_hunts = [(uid, d) for (c, uid), d in hunt_data.items() if c == chat_id and d.get('active')]
                 if not chat_hunts:
-                    await safe_respond(event, "?? **No active hunt protocols in this chat.**")
+                    await safe_respond(event, "🏹 **No active hunt protocols in this chat.**")
                     return
-                text = "?? **Active Hunt Protocols**\n\n"
+                text = "🏹 **Active Hunt Protocols**\n\n"
                 for uid, d in chat_hunts:
                     try:
                         u = await client.get_entity(uid)
                         name = u.first_name or "Unknown"
                     except:
                         name = "Unknown"
-                    text += f"• **{name}** `({uid})` ? `{d.get('delay', 1)}s`\n"
+                    text += f"• **{name}** `({uid})` ➔ `{d.get('delay', 1)}s`\n"
                 await safe_respond(event, text)
 
             # ===== VORTEX =====
             elif cmd_name == 'vortex' and cmd_args and event.is_reply:
                 if vortex_active.get(chat_id):
-                    await safe_respond(event, "?? **Vortex engine is already operational.** Use `-stopvortex` to halt the current session.")
+                    await safe_respond(event, "🌀 **Vortex engine is already operational.** Use `-stopvortex` to halt the current session.")
                     return
                 reply_msg = await event.get_reply_message()
                 vortex_active[chat_id] = True
                 target_text = cmd_args
                 reply_id = reply_msg.id
                 
-                await safe_respond(event, "?? **Vortex engine ignited.** Non-stop rotational assault now in progress...")
+                await safe_respond(event, "🌀 **Vortex engine ignited.** Non-stop rotational assault now in progress...")
 
                 async def vortex_loop():
-                    print(f"?? Vortex ignited in {chat_id}")
+                    print(f"Vortex ignited in {chat_id}")
                     while vortex_active.get(chat_id):
                         try:
                             await client.send_message(chat_id, target_text, reply_to=reply_id)
                         except errors.FloodWaitError as f:
                             await asyncio.sleep(f.seconds)
                         except Exception as e:
-                            print(f"? Vortex error: {e}")
+                            print(f"Vortex error: {e}")
                             break
                         await asyncio.sleep(current_speed)
-                    print(f"?? Vortex halted")
+                    print(f"Vortex halted")
 
                 asyncio.create_task(vortex_loop())
 
             elif cmd_name == 'stopvortex':
                 vortex_active[chat_id] = False
-                await safe_respond(event, "?? **Vortex engine frozen.** Rotational assault suspended.")
+                await safe_respond(event, "🌀 **Vortex engine frozen.** Rotational assault suspended.")
 
             # ===== BURST =====
             elif cmd_name == 'burst' and cmd_args:
                 if spam_active.get(chat_id):
-                    await safe_respond(event, "?? **Barrage is already underway.** Use `-stopburst` to halt.")
+                    await safe_respond(event, "💥 **Barrage is already underway.** Use `-stopburst` to halt.")
                     return
                 spam_active[chat_id] = True
                 target_text = cmd_args
                 
-                await safe_respond(event, "?? **Burst mode activated.** Relentless barrage now streaming...")
+                await safe_respond(event, "💥 **Burst mode activated.** Relentless barrage now streaming...")
 
                 async def burst_loop():
-                    print(f"?? Burst ignited in {chat_id}")
+                    print(f"Burst ignited in {chat_id}")
                     while spam_active.get(chat_id):
                         try:
                             await client.send_message(chat_id, target_text)
                         except errors.FloodWaitError as f:
                             await asyncio.sleep(f.seconds)
                         except Exception as e:
-                            print(f"? Burst error: {e}")
+                            print(f"Burst error: {e}")
                             break
                         await asyncio.sleep(current_speed)
-                    print(f"?? Burst halted")
+                    print(f"Burst halted")
 
                 asyncio.create_task(burst_loop())
 
             elif cmd_name == 'stopburst':
                 spam_active[chat_id] = False
-                await safe_respond(event, "?? **Barrage terminated.** All offensive streams have ceased.")
+                await safe_respond(event, "💥 **Barrage terminated.** All offensive streams have ceased.")
 
             # ===== TARGET =====
             elif cmd_name == 'target':
                 target = await resolve_target_user(cmd_args, event)
                 if not target:
-                    await safe_respond(event, "? **Target unresolved.** Reply to a user to designate as target.")
+                    await safe_respond(event, "⚠️ **Target unresolved.** Reply to a user to designate as target.")
                     return
                 k = (chat_id, target)
                 if k not in target_data:
@@ -903,19 +907,19 @@ async def unified_handler(event):
                     name = u.first_name or "Unknown"
                 except:
                     name = "Unknown"
-                await safe_respond(event, f"?? **Target acquired:** {name} — Protocol now active.")
+                await safe_respond(event, f"🎯 **Target acquired:** {name} — Protocol now active.")
 
             elif cmd_name == 'stoptarget':
                 target = await resolve_target_user(cmd_args, event)
                 if not target:
-                    await safe_respond(event, "? **Reply to a user to release them as target.**")
+                    await safe_respond(event, "⚠️ **Reply to a user to release them as target.**")
                     return
                 k = (chat_id, target)
                 if k in target_data:
                     del target_data[k]
-                    await safe_respond(event, "?? **Target released.** Protocol deactivated for this user.")
+                    await safe_respond(event, "🎯 **Target released.** Protocol deactivated for this user.")
                 else:
-                    await safe_respond(event, "?? **No active target registered for this user.**")
+                    await safe_respond(event, "🎯 **No active target registered for this user.**")
 
             elif cmd_name == 'targetdelay':
                 target = None
@@ -935,10 +939,10 @@ async def unified_handler(event):
                 else:
                     target = await get_user_from_reply(event)
                 if not target:
-                    await safe_respond(event, "? **Target unresolved.** Reply to a user to proceed.")
+                    await safe_respond(event, "⚠️ **Target unresolved.** Reply to a user to proceed.")
                     return
                 if delay_val is None:
-                    await safe_respond(event, "? **Delay value missing.** Example: `-targetdelay 5`")
+                    await safe_respond(event, "⚠️ **Delay value missing.** Example: `-targetdelay 5`")
                     return
                 if delay_val < 0: delay_val = 0
                 k = (chat_id, target)
@@ -946,37 +950,37 @@ async def unified_handler(event):
                     target_data[k] = {'delay': delay_val, 'active': True}
                 else:
                     target_data[k]['delay'] = delay_val
-                await safe_respond(event, f"?? **Target response delay synchronized to** `{delay_val}s`.")
+                await safe_respond(event, f"🎯 **Target response delay synchronized to** `{delay_val}s`.")
 
             elif cmd_name == 'targetlist':
                 chat_targets = [(uid, d) for (c, uid), d in target_data.items() if c == chat_id and d.get('active')]
                 if not chat_targets:
-                    await safe_respond(event, "?? **No active targets registered in this chat.**")
+                    await safe_respond(event, "🎯 **No active targets registered in this chat.**")
                     return
-                text = "?? **Active Target Registry**\n\n"
+                text = "🎯 **Active Target Registry**\n\n"
                 for uid, d in chat_targets:
                     try:
                         u = await client.get_entity(uid)
                         name = u.first_name or "Unknown"
                     except:
                         name = "Unknown"
-                    text += f"• **{name}** `({uid})` ? `{d.get('delay', 0)}s`\n"
+                    text += f"• **{name}** `({uid})` ➔ `{d.get('delay', 0)}s`\n"
                 await safe_respond(event, text)
 
             # ===== LOCK =====
             elif cmd_name == 'lockchat':
                 if chat_id in lock_data:
-                    await safe_respond(event, "?? **This chat is already fortified with a lock.**")
+                    await safe_respond(event, "🔒 **This chat is already fortified with a lock.**")
                 else:
                     lock_data[chat_id] = sender_id
-                    await safe_respond(event, "?? **Security lockdown engaged.** Only the host may transmit messages in this chat.")
+                    await safe_respond(event, "🔒 **Security lockdown engaged.** Only the host may transmit messages in this chat.")
 
             elif cmd_name == 'unlockchat':
                 if chat_id not in lock_data:
-                    await safe_respond(event, "?? **This chat is not currently locked.**")
+                    await safe_respond(event, "🔒 **This chat is not currently locked.**")
                 else:
                     lock_data.pop(chat_id, None)
-                    await safe_respond(event, "?? **Security release acknowledged.** All users may resume transmission.")
+                    await safe_respond(event, "🔓 **Security release acknowledged.** All users may resume transmission.")
 
             # ===== MUTE =====
             elif cmd_name == 'globalmute':
@@ -989,7 +993,7 @@ async def unified_handler(event):
                     r = await get_user_from_reply(event)
                     if r: user_ids.append(r)
                 if not user_ids:
-                    await safe_respond(event, "? **No valid users detected.**")
+                    await safe_respond(event, "⚠️ **No valid users detected.**")
                     return
                 if chat_id not in global_mute_users:
                     global_mute_users[chat_id] = set()
@@ -998,7 +1002,7 @@ async def unified_handler(event):
                     if uid not in global_mute_users[chat_id]:
                         global_mute_users[chat_id].add(uid)
                         added += 1
-                await safe_respond(event, f"?? **Mute deployed.** {added} user(s) silenced within this group.")
+                await safe_respond(event, f"🔇 **Mute deployed.** {added} user(s) silenced within this group.")
 
             elif cmd_name == 'globalunmute':
                 user_ids = []
@@ -1010,10 +1014,10 @@ async def unified_handler(event):
                     r = await get_user_from_reply(event)
                     if r: user_ids.append(r)
                 if not user_ids:
-                    await safe_respond(event, "? **No valid users detected.**")
+                    await safe_respond(event, "⚠️ **No valid users detected.**")
                     return
                 if chat_id not in global_mute_users:
-                    await safe_respond(event, "? **No muted users exist in this chat.**")
+                    await safe_respond(event, "⚠ **No muted users exist in this chat.**")
                     return
                 removed = 0
                 for uid in user_ids:
@@ -1022,13 +1026,13 @@ async def unified_handler(event):
                         removed += 1
                 if not global_mute_users[chat_id]:
                     del global_mute_users[chat_id]
-                await safe_respond(event, f"?? **Mute revoked.** {removed} user(s) permitted to transmit once again.")
+                await safe_respond(event, f"🔊 **Mute revoked.** {removed} user(s) permitted to transmit once again.")
 
             elif cmd_name == 'mutelist':
                 if chat_id not in global_mute_users or not global_mute_users[chat_id]:
-                    await safe_respond(event, "?? **No muted users registered in this chat.**")
+                    await safe_respond(event, "🔇 **No muted users registered in this chat.**")
                     return
-                text = "?? **Active Mute Registry**\n\n"
+                text = "🔇 **Active Mute Registry**\n\n"
                 for uid in global_mute_users[chat_id]:
                     try:
                         u = await client.get_entity(uid)
@@ -1048,7 +1052,7 @@ async def unified_handler(event):
                     r = await get_user_from_reply(event)
                     if r: user_ids.append(r)
                 if not user_ids:
-                    await safe_respond(event, "? **No valid users detected.**")
+                    await safe_respond(event, "⚠️ **No valid users detected.**")
                     return
                 if chat_id not in blacklist:
                     blacklist[chat_id] = set()
@@ -1058,7 +1062,7 @@ async def unified_handler(event):
                         blacklist[chat_id].add(uid)
                         added += 1
                         await kick_user(chat_id, uid)
-                await safe_respond(event, f"?? **Blacklist enforced.** {added} user(s) designated for exclusion.")
+                await safe_respond(event, f"🚫 **Blacklist enforced.** {added} user(s) designated for exclusion.")
 
             elif cmd_name == 'rmblacklist':
                 user_ids = []
@@ -1070,10 +1074,10 @@ async def unified_handler(event):
                     r = await get_user_from_reply(event)
                     if r: user_ids.append(r)
                 if not user_ids:
-                    await safe_respond(event, "? **No valid users detected.**")
+                    await safe_respond(event, "⚠ **No valid users detected.**")
                     return
                 if chat_id not in blacklist:
-                    await safe_respond(event, "? **No blacklisted users in this chat.**")
+                    await safe_respond(event, "⚠️ **No blacklisted users in this chat.**")
                     return
                 removed = 0
                 for uid in user_ids:
@@ -1082,13 +1086,13 @@ async def unified_handler(event):
                         removed += 1
                 if not blacklist[chat_id]:
                     del blacklist[chat_id]
-                await safe_respond(event, f"? **Blacklist revoked.** {removed} user(s) restored to permitted status.")
+                await safe_respond(event, f"✅ **Blacklist revoked.** {removed} user(s) restored to permitted status.")
 
             elif cmd_name == 'blackliststatus':
                 if chat_id not in blacklist or not blacklist[chat_id]:
-                    await safe_respond(event, "?? **No blacklisted users in this chat.**")
+                    await safe_respond(event, "🚫 **No blacklisted users in this chat.**")
                     return
-                text = "?? **Blacklist Registry**\n\n"
+                text = "🚫 **Blacklist Registry**\n\n"
                 for uid in blacklist[chat_id]:
                     try:
                         u = await client.get_entity(uid)
@@ -1101,77 +1105,77 @@ async def unified_handler(event):
             elif cmd_name == 'setimageuser':
                 target = await get_user_from_reply(event)
                 if not target:
-                    await safe_respond(event, "? **Reply to a user to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a user to proceed.**")
                     return
                 image_target[chat_id] = target
-                await safe_respond(event, "?? **Image target designated.** Arsenal now bound to this user.")
+                await safe_respond(event, "🖼️ **Image target designated.** Arsenal now bound to this user.")
 
             elif cmd_name == 'reloadimage':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a photo to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a photo to proceed.**")
                     return
                 reply = await event.get_reply_message()
                 if not (reply.photo or (reply.document and reply.document.mime_type and reply.document.mime_type.startswith('image/'))):
-                    await safe_respond(event, "? **Target media is not a photo.**")
+                    await safe_respond(event, "⚠️ **Target media is not a photo.**")
                     return
                 target = image_target.get(chat_id)
                 if not target:
-                    await safe_respond(event, "? **No image target designated.** Use `-setimageuser` first.")
+                    await safe_respond(event, "⚠ **No image target designated.** Use `-setimageuser` first.")
                     return
                 parts = cmd_args.split(maxsplit=1)
                 if not parts:
-                    await safe_respond(event, "? **Usage:** `-reloadimage <id> [caption]`")
+                    await safe_respond(event, "⚠️ **Usage:** `-reloadimage <id> [caption]`")
                     return
                 try:
                     img_id = int(parts[0])
                 except ValueError:
-                    await safe_respond(event, "? **Image identifier must be numeric.**")
+                    await safe_respond(event, "⚠️ **Image identifier must be numeric.**")
                     return
                 caption = parts[1] if len(parts) > 1 else ""
                 path = os.path.join(IMAGE_FOLDER, f"img_{chat_id}_{target}_{img_id}.jpg")
                 try:
                     file_path = await client.download_media(reply, file=path)
                     if not file_path:
-                        await safe_respond(event, "? **Download operation failed.**")
+                        await safe_respond(event, "⚠️ **Download operation failed.**")
                         return
                 except Exception as e:
-                    await safe_respond(event, f"? **Execution error:** `{str(e)[:80]}`")
+                    await safe_respond(event, f"⚠️️ **Execution error:** `{str(e)[:80]}`")
                     return
                 k = (chat_id, target)
                 if k not in user_images: user_images[k] = {}
                 user_images[k][str(img_id)] = {'path': file_path, 'caption': caption}
                 save_image_data()
-                await safe_respond(event, f"?? **Image archived with identifier** `{img_id}` — Payload ready for deployment.")
+                await safe_respond(event, f"🖼️ **Image archived with identifier** `{img_id}` — Payload ready for deployment.")
 
             elif cmd_name == 'imagereply':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a user to proceed.**")
+                    await safe_respond(event, "⚠ **Reply to a user to proceed.**")
                     return
                 reply = await event.get_reply_message()
                 target = reply.sender_id
                 k = (chat_id, target)
                 if k not in user_images or not user_images[k]:
-                    await safe_respond(event, "? **No images archived for this user.**")
+                    await safe_respond(event, "⚠️ **No images archived for this user.**")
                     return
                 image_reply_active[k] = True
-                await safe_respond(event, "??? **Image protocol engaged.** Random archival imagery will be dispatched on incoming messages.")
+                await safe_respond(event, "🖼️ **Image protocol engaged.** Random archival imagery will be dispatched on incoming messages.")
 
             elif cmd_name == 'imagestop':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a user to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a user to proceed.**")
                     return
                 reply = await event.get_reply_message()
                 target = reply.sender_id
                 k = (chat_id, target)
                 if k in image_reply_active:
                     del image_reply_active[k]
-                    await safe_respond(event, "?? **Image protocol disengaged.** User released from imagery dispatch.")
+                    await safe_respond(event, "🖼️ **Image protocol disengaged.** User released from imagery dispatch.")
                 else:
-                    await safe_respond(event, "?? **No active image protocol for this user.**")
+                    await safe_respond(event, "🖼️️ **No active image protocol for this user.**")
 
             elif cmd_name == 'imagedelay':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a user to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a user to proceed.**")
                     return
                 reply = await event.get_reply_message()
                 target = reply.sender_id
@@ -1180,24 +1184,24 @@ async def unified_handler(event):
                     k = (chat_id, target)
                     image_delay[k] = delay
                     save_image_data()
-                    await safe_respond(event, f"?? **Image dispatch delay synchronized to** `{delay}ms`.")
+                    await safe_respond(event, f"🖼️ **Image dispatch delay synchronized to** `{delay}ms`.")
                 except:
-                    await safe_respond(event, "? **Malformed value detected.**")
+                    await safe_respond(event, "⚠️ **Malformed value detected.**")
 
             elif cmd_name == 'photomode':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a user to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a user to proceed.**")
                     return
                 reply = await event.get_reply_message()
                 target = reply.sender_id
                 k = (chat_id, target)
                 photo_mode[k] = True
                 save_image_data()
-                await safe_respond(event, "?? **Photo mode engaged.** Imagery will dispatch only upon incoming photos or videos.")
+                await safe_respond(event, "📸 **Photo mode engaged.** Imagery will dispatch only upon incoming photos or videos.")
 
             elif cmd_name == 'offphotomode':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a user to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a user to proceed.**")
                     return
                 reply = await event.get_reply_message()
                 target = reply.sender_id
@@ -1205,46 +1209,46 @@ async def unified_handler(event):
                 if k in photo_mode:
                     del photo_mode[k]
                     save_image_data()
-                    await safe_respond(event, "?? **Photo mode disengaged.** Imagery will now dispatch on all incoming messages.")
+                    await safe_respond(event, "📸 **Photo mode disengaged.** Imagery will now dispatch on all incoming messages.")
                 else:
-                    await safe_respond(event, "?? **Photo mode is already inactive for this user.**")
+                    await safe_respond(event, "📸 **Photo mode is already inactive for this user.**")
 
             elif cmd_name == 'imagelist':
                 if cmd_args:
                     user_id = await parse_user_from_arg(cmd_args, event)
                     if not user_id:
-                        await safe_respond(event, "? **Invalid user identifier.**")
+                        await safe_respond(event, "⚠️ **Invalid user identifier.**")
                         return
                     target_user = user_id
                 else:
                     target_user = image_target.get(chat_id)
                     if not target_user:
-                        await safe_respond(event, "? **No target designated.**")
+                        await safe_respond(event, "⚠ **No target designated.**")
                         return
                 k = (chat_id, target_user)
                 if k not in user_images or not user_images[k]:
-                    await safe_respond(event, "?? **No images archived for this user.**")
+                    await safe_respond(event, "🖼️ **No images archived for this user.**")
                     return
-                text = f"??? **Image Archive for** `{target_user}`\n\n"
+                text = f"🖼️ **Image Archive for** `{target_user}`\n\n"
                 for iid, info in user_images[k].items():
-                    text += f"• ID `{iid}` ? `{info['caption']}`\n"
+                    text += f"• ID `{iid}` ➔ `{info['caption']}`\n"
                 await safe_respond(event, text)
 
             elif cmd_name == 'imageclear':
                 if cmd_args:
                     user_id = await parse_user_from_arg(cmd_args, event)
                     if not user_id:
-                        await safe_respond(event, "? **Invalid user identifier.**")
+                        await safe_respond(event, "⚠️ **Invalid user identifier.**")
                         return
                     target_user = user_id
                 else:
                     target_user = image_target.get(chat_id)
                     if not target_user:
-                        await safe_respond(event, "? **No target designated.**")
+                        await safe_respond(event, "⚠️ **No target designated.**")
                         return
                 k = (chat_id, target_user)
                 if k not in user_images or not user_images[k]:
-                    await safe_respond(event, "?? **No images to purge.**")
+                    await safe_respond(event, "🖼️ **No images to purge.**")
                     return
                 for info in user_images[k].values():
                     try: os.remove(info['path'])
@@ -1253,11 +1257,11 @@ async def unified_handler(event):
                 image_delay.pop(k, None)
                 photo_mode.pop(k, None)
                 save_image_data()
-                await safe_respond(event, "??? **Image archive purged.** All archival imagery eliminated.")
+                await safe_respond(event, "🖼️ **Image archive purged.** All archival imagery eliminated.")
 
             # ===== VOICE NOTE =====
             elif cmd_name == 'vn' and cmd_args:
-                await safe_respond(event, "??? **Synthesizing voice transmission...**")
+                await safe_respond(event, "🎙️ **Synthesizing voice transmission...**")
                 try:
                     audio_path = await text_to_voice(cmd_args)
                     await client.send_file(chat_id, audio_path, voice_note=True, caption=cmd_args,
@@ -1265,39 +1269,39 @@ async def unified_handler(event):
                     if os.path.exists(audio_path):
                         os.remove(audio_path)
                 except Exception as e:
-                    await safe_respond(event, f"? **Synthesis failed:** `{str(e)[:80]}`")
+                    await safe_respond(event, f"⚠️ **Synthesis failed:** `{str(e)[:80]}`")
 
             # ===== SNIPE =====
             elif cmd_name == 'snipe':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a target message to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a target message to proceed.**")
                     return
                 if not cmd_args:
-                    await safe_respond(event, "? **Text payload missing.** Usage: `-snipe <text>`")
+                    await safe_respond(event, "⚠️ **Text payload missing.** Usage: `-snipe <text>`")
                     return
                 rep = await event.get_reply_message()
                 snipe_data[(chat_id, rep.sender_id)] = cmd_args
-                await safe_respond(event, "?? **Counter-strike armed.** Target will be intercepted on their next transmission.")
+                await safe_respond(event, "🎯 **Counter-strike armed.** Target will be intercepted on their next transmission.")
 
             elif cmd_name == 'stopsnipe':
                 if not event.is_reply:
-                    await safe_respond(event, "? **Reply to a user to proceed.**")
+                    await safe_respond(event, "⚠️ **Reply to a user to proceed.**")
                     return
                 rep = await event.get_reply_message()
                 snipe_data.pop((chat_id, rep.sender_id), None)
-                await safe_respond(event, "?? **Counter-strike disarmed.** Target released from sniper protocol.")
+                await safe_respond(event, "🎯 **Counter-strike disarmed.** Target released from sniper protocol.")
 
             # ===== CLONE =====
             elif cmd_name == 'clone' and event.is_reply:
-                await event.edit("?? **Identity replicator engaged — establishing connection...**")
+                await event.edit("👤 **Identity replicator engaged — establishing connection...**")
                 reply_msg = await event.get_reply_message()
                 try:
                     target_user = await client.get_entity(reply_msg.sender_id)
                 except Exception as e:
-                    await event.edit(f"? **Connection violation:** `{str(e)[:80]}`")
+                    await event.edit(f"⚠️ **Connection violation:** `{str(e)[:80]}`")
                     return
                 if not isinstance(target_user, types.User):
-                    await event.edit("? **Target must be a user entity.**")
+                    await event.edit("⚠️ **Target must be a user entity.**")
                     return
                 me = await client.get_me()
                 full_me = await client(functions.users.GetFullUserRequest(id=me.id))
@@ -1318,57 +1322,57 @@ async def unified_handler(event):
                 try:
                     await client(functions.account.UpdateProfileRequest(
                         first_name=target_first, last_name=target_last, about=target_bio))
-                    await event.edit("?? **Ghost mode active.** Identity successfully replicated — name, bio and portrait mirrored.")
+                    await event.edit("👤 **Ghost mode active.** Identity successfully replicated — name, bio and portrait mirrored.")
                 except Exception as e:
-                    await event.edit(f"? **Profile update failed:** `{str(e)[:80]}`")
+                    await event.edit(f"⚠️ **Profile update failed:** `{str(e)[:80]}`")
 
             elif cmd_name == 'restore':
-                await event.edit("?? **Restoring original identity configuration...**")
+                await event.edit("👤 **Restoring original identity configuration...**")
                 try:
                     await client(functions.account.UpdateProfileRequest(
                         first_name=original_profile["first_name"],
                         last_name=original_profile["last_name"],
                         about=original_profile["about"]))
-                    await event.edit("? **Identity restored.** Your original profile has been reactivated.")
+                    await event.edit("✅ **Identity restored.** Your original profile has been reactivated.")
                 except Exception as e:
-                    await event.edit(f"? **Restoration failed:** `{str(e)[:80]}`")
+                    await event.edit(f"⚠️ **Restoration failed:** `{str(e)[:80]}`")
 
             # ===== SUDO =====
             elif cmd_name == 'addsudo' and cmd_args:
                 if not is_super_owner():
-                    await safe_respond(event, "? **Access denied — super owners only.**")
+                    await safe_respond(event, "⚠️ **Access denied — super owners only.**")
                     return
                 try:
                     username = cmd_args.strip().replace('@', '')
                     u = await client.get_entity(f"@{username}")
                     sudo_users.add(u.id)
-                    await safe_respond(event, f"?? **Sudo authority granted to {u.first_name}.** Elevated privileges now in effect.")
+                    await safe_respond(event, f"👑 **Sudo authority granted to {u.first_name}.** Elevated privileges now in effect.")
                 except Exception as e:
-                    await safe_respond(event, f"? **Operation failed:** `{str(e)[:50]}`")
+                    await safe_respond(event, f"⚠️ **Operation failed:** `{str(e)[:50]}`")
 
             elif cmd_name == 'removesudo' and cmd_args:
                 if not is_super_owner():
-                    await safe_respond(event, "? **Access denied — super owners only.**")
+                    await safe_respond(event, "⚠️ **Access denied — super owners only.**")
                     return
                 try:
                     username = cmd_args.strip().replace('@', '')
                     u = await client.get_entity(f"@{username}")
                     if u.id in sudo_users:
                         sudo_users.remove(u.id)
-                        await safe_respond(event, f"?? **Sudo authority revoked from {u.first_name}.**")
+                        await safe_respond(event, f"👑 **Sudo authority revoked from {u.first_name}.**")
                     else:
-                        await safe_respond(event, f"?? **User is not registered within the sudo registry.**")
+                        await safe_respond(event, f"⚠️ **User is not registered within the sudo registry.**")
                 except Exception as e:
-                    await safe_respond(event, f"? **Operation failed:** `{str(e)[:50]}`")
+                    await safe_respond(event, f"⚠️ **Operation failed:** `{str(e)[:50]}`")
 
             elif cmd_name == 'sudolist':
                 if not is_super_owner():
-                    await safe_respond(event, "? **Access denied — super owners only.**")
+                    await safe_respond(event, "⚠️ **Access denied — super owners only.**")
                     return
                 if not sudo_users:
-                    await safe_respond(event, "?? **No sudo users registered.**")
+                    await safe_respond(event, "👑 **No sudo users registered.**")
                     return
-                text = "?? **Sudo Registry**\n\n"
+                text = "👑 **Sudo Registry**\n\n"
                 for uid in sudo_users:
                     try:
                         u = await client.get_entity(uid)
@@ -1379,20 +1383,20 @@ async def unified_handler(event):
 
             elif cmd_name == 'superinvite':
                 if not is_super_owner():
-                    await safe_respond(event, "? **Access denied — super owners only.**")
+                    await safe_respond(event, "⚠️ **Access denied — super owners only.**")
                     return
                 link = cmd_args.strip()
                 if not link:
-                    await safe_respond(event, "? **Invite link missing.** Usage: `-superinvite <link>`")
+                    await safe_respond(event, "⚠️ **Invite link missing.** Usage: `-superinvite <link>`")
                     return
-                await safe_respond(event, "?? **Initiating group infiltration...**")
+                await safe_respond(event, "🚀 **Initiating group infiltration...**")
                 try:
                     await join_client_via_link(link)
-                    await safe_respond(event, "? **Infiltration successful.** Target group joined.")
+                    await safe_respond(event, "✅ **Infiltration successful.** Target group joined.")
                 except errors.FloodWaitError as fw:
-                    await safe_respond(event, f"?? **Rate limit encountered** — retry after {fw.seconds}s.")
+                    await safe_respond(event, f"⚠️ **Rate limit encountered** — retry after {fw.seconds}s.")
                 except Exception as e:
-                    await safe_respond(event, f"? **Infiltration failed:** `{str(e)[:80]}`")
+                    await safe_respond(event, f"⚠️ **Infiltration failed:** `{str(e)[:80]}`")
 
             # ===== KILL =====
             elif cmd_name == 'kill':
@@ -1424,10 +1428,10 @@ async def unified_handler(event):
                 save_image_data()
                 image_target.pop(chat_id, None)
                 blacklist.pop(chat_id, None)
-                await safe_respond(event, "?? **System purge executed.** All active protocols within this chat have been wiped clean.")
+                await safe_respond(event, "💀 **System purge executed.** All active protocols within this chat have been wiped clean.")
 
         except Exception as e:
-            print(f"? Command error [{cmd_name}]: {type(e).__name__}: {e}")
+            print(f"Command error [{cmd_name}]: {type(e).__name__}: {e}")
         return
 
     # ==========================================
@@ -1459,9 +1463,9 @@ async def unified_handler(event):
     if key in snipe_data:
         try:
             await client.send_message(chat_id, snipe_data[key], reply_to=event.id)
-            print(f"?? Snipe dispatched")
+            print(f"Snipe dispatched")
         except Exception as e:
-            print(f"? Snipe error: {e}")
+            print(f"Snipe error: {e}")
 
     # Target (direct)
     if key in target_data and target_data[key].get('active'):
@@ -1578,31 +1582,31 @@ async def main():
     me = await client.get_me()
     host_account_id = me.id
 
-    print(f"?? Super Owners: {SUPER_OWNERS}")
-    print(f"??? Host: {me.first_name} (ID: {host_account_id})")
+    print(f"Super Owners: {SUPER_OWNERS}")
+    print(f"Host: {me.first_name} (ID: {host_account_id})")
 
     if not os.path.exists(GAALI_FILE):
-        print(f"?? gaali.txt NOT FOUND!")
+        print(f"gaali.txt NOT FOUND!")
     else:
         lines = load_gaali_lines()
         if lines:
-            print(f"? gaali.txt loaded ({len(lines)} lines).")
+            print(f"gaali.txt loaded ({len(lines)} lines).")
 
     if not os.path.exists(HUNT_FILE):
-        print(f"?? hunt.txt NOT FOUND!")
+        print(f"hunt.txt NOT FOUND!")
     else:
         hlines = load_hunt_lines()
         if hlines:
-            print(f"? hunt.txt loaded ({len(hlines)} lines).")
+            print(f"hunt.txt loaded ({len(hlines)} lines).")
 
     banner_count = len(list_banners())
-    print(f"?? Banners loaded: {banner_count}")
+    print(f"Banners loaded: {banner_count}")
 
-    print("?? AIMGOD FINAL BOT LIVE!")
-    print("?? Pulse System Active!")
-    print("?? Hunt System Active!")
-    print("?? Banner System Active!")
-    print("?? Web server active for Render deployment!")
+    print("⚡ AIMGOD FINAL BOT LIVE!")
+    print("🎯 Pulse System Active!")
+    print("🏹 Hunt System Active!")
+    print("🖼️ Banner System Active!")
+    print("🌐 Web server active for Render deployment!")
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
