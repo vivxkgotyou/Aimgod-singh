@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 import threading
@@ -21,6 +20,7 @@ active_tasks = {}
 SUPEROWNER_ID = 6133172474
 P = r"/"
 current_delay = 0.5
+SESSION_FILE = "sessions.txt"
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("VIV1-WEB-PANEL")
@@ -89,7 +89,7 @@ HTML_TEMPLATE = """
         {% elif step == 'success' %}
         <div style="text-align: center;">
             <p style="color: #4ade80; font-weight: 600; font-size: 16px; margin-bottom: 5px;">✅ Connected Successfully!</p>
-            <p style="font-size: 12px; color: #94a3b8;">Aapki Session String generate ho gayi hai:</p>
+            <p style="font-size: 12px; color: #94a3b8;">Session saved & bot activated automatically:</p>
             <div class="string-box">{{ session_string }}</div>
             <a href="/"><button style="margin-top: 20px;">Connect Another Account</button></a>
         </div>
@@ -122,6 +122,8 @@ def send_code():
         temp_logins["client"] = client
         temp_logins["phone"] = phone
         temp_logins["phone_code_hash"] = sent.phone_code_hash
+        temp_logins["api_id"] = api_id
+        temp_logins["api_hash"] = api_hash
         temp_logins["loop"] = loop
         
         return render_template_string(HTML_TEMPLATE, step="otp")
@@ -140,6 +142,14 @@ def verify_otp():
     try:
         loop.run_until_complete(client.sign_in(phone=phone, code=otp, phone_code_hash=phone_code_hash))
         session_str = client.session.save()
+        
+        # Save session string to file
+        with open(SESSION_FILE, "a") as f:
+            f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
+            
+        # Start client background task dynamically
+        asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
+
         return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
     except SessionPasswordNeededError:
         return render_template_string(HTML_TEMPLATE, step="password")
@@ -156,6 +166,14 @@ def verify_password():
     try:
         loop.run_until_complete(client.sign_in(password=password))
         session_str = client.session.save()
+        
+        # Save session string to file
+        with open(SESSION_FILE, "a") as f:
+            f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
+            
+        # Start client background task dynamically
+        asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
+
         return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
     except Exception as e:
         flash(f"2FA Error: {str(e)}", "error")
@@ -164,7 +182,6 @@ def verify_password():
 # ═══════════════ USERBOT EVENT REGISTRATION & FEATURES ═══════════════
 
 def register_userbot_events(client):
-    
     async def is_auth(event):
         return event.sender_id == SUPEROWNER_ID or event.out
 
@@ -421,20 +438,46 @@ def register_userbot_events(client):
                 count += 1
         await event.reply(f"**🛑 Stopped `{count}` active background tasks in this chat!**")
 
+async def start_single_client(api_id, api_hash, session_str):
+    try:
+        client = TelegramClient(StringSession(session_str), int(api_id), api_hash)
+        await client.start()
+        register_userbot_events(client)
+        clients.append(client)
+        me = await client.get_me()
+        log.info(f"✅ Userbot connected: {me.first_name} (ID: {me.id})")
+        await client.run_until_disconnected()
+    except Exception as e:
+        log.error(f"Client start error: {e}")
+
+async def load_saved_sessions():
+    if not os.path.exists(SESSION_FILE):
+        return
+    with open(SESSION_FILE, "r") as f:
+        lines = f.readlines()
+    for line in lines:
+        parts = line.strip().split("|")
+        if len(parts) == 3:
+            api_id, api_hash, session_str = parts
+            asyncio.create_task(start_single_client(api_id, api_hash, session_str))
+
+bot_loop = None
+
+def run_bot_loop():
+    global bot_loop
+    bot_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(bot_loop)
+    bot_loop.run_until_complete(load_saved_sessions())
+    bot_loop.run_forever()
+
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
+    # Start Flask Web Server in background thread
     threading.Thread(target=run_flask, daemon=True).start()
-    log.info("🌐 Vivek's Command Center & Userbot Backend started successfully!")
+    log.info("🌐 Web Panel started successfully!")
     
-    try:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        loop.run_forever()
-    except KeyboardInterrupt:
-        pass
+    # Start Userbot Event Loop
+    run_bot_loop()
