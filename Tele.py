@@ -1,417 +1,449 @@
 import asyncio
-import random
-import time
-import logging
 import os
-import sys
-from datetime import datetime
+import threading
+import logging
+import random
+from flask import Flask, render_template_string, request, redirect, url_for, session, flash
 from telethon import TelegramClient, events
-from telethon.errors import (
-    PeerIdInvalidError, ChatWriteForbiddenError, UserNotParticipantError,
-    ChatAdminRequiredError, ChannelPrivateError, FloodWaitError,
-    UserAlreadyParticipantError, UserPrivacyRestrictedError
-)
-from telethon.tl.functions.channels import EditAdminRequest, JoinChannelRequest, InviteToChannelRequest
-from telethon.tl.types import ChatAdminRights
+from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.sessions import StringSession
+from telethon.tl.functions.photos import UploadProfilePhotoRequest
+from telethon.tl.functions.users import GetFullUserRequest
 
-# ═══════════════ MULTI-ACCOUNT CONFIGURATION ═══════════════
-SUPEROWNER_ID = 6133172474
+app = Flask(__name__)
+app.secret_key = "vivek_super_secret_key"
 
-ACCOUNTS = [
-    {
-        "api_id": 30357864,
-        "api_hash": "8d8a1027816b1724b0b420480ea06a6f",
-        "session": "vivek_session"
-    },
-    {
-        "api_id": 38437169,
-        "api_hash": "0e157a3fcf9ce4e2e7d37b8d4918b3ee",
-        "session": "bot2_session"
-    },
-    {
-        "api_id": 30416596,
-        "api_hash": "f34ed882241e899cb53cbd906906627f",
-        "session": "bot3_session"
-    },
-    {
-        "api_id": 39013245,
-        "api_hash": "963f01b44bc7aef297ce8d9f84b13739",
-        "session": "bot4_session"
-    },
-    {
-        "api_id": 37767333,
-        "api_hash": "5815e35ce0bfe4e53fcbd0d374334803",
-        "session": "bot5_session"
-    }
-]
-
-BOT_VERSION = "𝘼𝙪𝙩𝙤𝙢𝙖𝙩𝙚𝙙 𝘽𝙮 𝙑𝙞v1 🇧🇼 [No-Call Suite]"
-START_TIME = datetime.now()
-P = r"\."  # prefix pattern
-
-# ═══════════════ LOGGING ═══════════════
-os.makedirs("logs", exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[
-        logging.FileHandler("logs/bot.log", encoding="utf-8"),
-        logging.StreamHandler()
-    ]
-)
-log = logging.getLogger("VIV1-MULTI-BOT")
-
+temp_logins = {}
 clients = []
+active_tasks = {}
 
-async def safe_delete(msg, delay=0.0):
-    try:
-        if delay > 0:
-            await asyncio.sleep(delay)
-        await msg.delete()
-    except Exception:
-        pass
+SUPEROWNER_ID = 6133172474
+P = r"/"  # Prefix changed to / as requested
+current_delay = 0.5
 
-# ═══════════════ THREAD-SAFE STORAGE & CONTROL ═══════════════
-state_lock = asyncio.Lock()
-swipe_tasks = {}       # {chat_id: {client_index: asyncio.Task}}
-hunt_tasks = {}        # {chat_id: {client_index: asyncio.Task}}
-auto_replies = {}      # {chat_id: {user_id: text}}
-current_delay = 0.5    
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("VIV1-WEB-PANEL")
 
-DEFAULT_ADD2_BOTS = [
-    "vivuxz_bot", "rapixtvivekbot", "Vivekjack_bot", "vivxk_bot",
-    "vivxkbot", "vivekkfyn_bot", "vivxkspybot", "vivekkwrldbot",
-    "kuromcbot", "vivxkmyn_bot", "vivxkmyn2_bot", "aieshasxy_bot", "visuchod3_bot"
-]
-
-DEFAULT_ADD3_BOTS = [
-    "beingvivekbot", "beingvivek1bot", "beingvivek2bot", "beingvivek3bot",
-    "beingvivek4bot", "Gopubhaibot", "existingDestroyerbot", "vivekheavnlyybot", "thvivekbot"
-]
-
-RAID_POOL = [
-    "mene aj tk apni life me kuch galat kara ho to please teri ma randi hai",
-    "teri chachi ke takle me lund marke behos krdunga rndi ko",
-    "Tere maa ki gand me laat daalke tere choti behen maar dunga",
-    "teri budhi dadi ke left boob me mukke ki barish krke seena pichka dunga budhiya ka uske pith pr boobs ajayenge",
-    "teri betaal bhutni behn ki chut me bat se marunga rndi sochegi pitch gili thi batting kese hui",
-    "okat h kya koi teri khanjri ke bachhe madarchod",
-    "teri chhamiya behn ki chut me pipe dalke juice nikalenge glass ke andr",
-    "teri budhi bua ke gale me halki si blade marke lund jane ka rasta banaun rndike bche teri behn ko pregnant krke fir uska placenta bhar khinchke lat maru uspe",
-    "teri rndi didi ke sar me kulhadi marke 2 tukde krunga",
-    "teri Mumma ko budhhu bnaunga bolunga aunty ji apko dadhi ari hai fir unki shaving krne lejaunga kursi me bithake gala kat dunga aunty ji ka fir unki dead body ko parnam karke chudai karunga gopgop haha unki atma santusht hojayegi vivek bhai se",
-    "Teri maa ko uchal kr chodunga teri behen ko patak kr chodunga teri dadi ko duba duba kr chodunga teri nani ko bhaga bhaga kr chodunga budiya dm ghunte se hi mr jayegi teri mausi ki chut mein namak dalke chat chat kr chodunga",
-    "teri sextoy behn ki chut pe thappad marunga fir use chodke pagal kr dunga fir chudakkado ke bajar me bech dunga kutiya ko fir buyer se wapis chura launga fir firse chodunga roj maje se",
-    "teri pagal ma ke tango k baal danto se khinchunga rndi ki atma tadp jayegi drd se",
-    "teri pagal rndi ma ko pagalkhane se adopt krlunga fir ghr lake uski bohot chudayi krunga fir wapis pagal khane me return krdunga pasand nhi ayi kehke",
-    "teri ma rndi teri behn rndi teri tai rndi teri chachi rndi tu rndi ka bachha ma chude teri",
-    "teri ma ke seene me pechkas ghopunga fir straw dalke dudh piyunga kanjar ke"
-]
-
-HELP = """** 𝘼𝙪𝙩𝙤𝙢𝙖𝙩𝙚𝙙 By 𝙑𝙞v1 🇧🇼 [MASTER SYNC SUITE] **
-**🏗 𝙀𝙣𝙜𝙞𝙣𝙚: 𝙏𝙚𝙡𝙚𝙩𝙝𝙤𝙣**
-
-**🔥 𝙎𝙒𝙄𝙋𝙀, 𝙃𝙐𝙉𝙏, 𝘼𝙐𝙏𝙊𝙍𝙀𝙋𝙇𝙔 & 𝘿𝙀𝙇𝘼𝙔**
-`.swipe <msg>` — Spams reply thread using ALL accounts simultaneously
-`.stopswipe` — Kills active broadcast across all bots
-`.hunt` — Unleashes randomized multi-bot raid dispersion
-`.stophunt` — Stops the hunt session
-`.autoreply <text>` — (Reply) Deploys automated instant response protocol against target
-`.stopautoreply` — Ceases automated response protocol
-`.delay <seconds>` — Adjusts master delay/speed dynamically for all bots
-
-**👥 𝘼𝘿𝘿 & 𝙅𝙊𝙄𝙉**
-`.add2` — Summons your 13 main bots into the chat
-`.add3` — Summons your 9 auxiliary bots into the chat
-`.join <link>` — All 5 accounts pull up to the chat instantly
-
-**🧰 𝙐𝙏𝙄𝙇𝙄𝙏𝙄𝙀🇸**
-`.ping` — Checks the lag / ms
-`.alive` — Displays system flex & current delay
-`.stopall` — Shuts down all active tasks in this chat
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vivek's Command Center</title>
+    <style>
+        body { background-color: #0b0f19; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .card { background: #111827; padding: 35px; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid #1f2937; }
+        .brand { text-align: center; margin-bottom: 25px; }
+        .brand h1 { color: #38bdf8; font-size: 24px; margin: 0; font-weight: 700; letter-spacing: 0.5px; }
+        .brand p { color: #94a3b8; font-size: 13px; margin-top: 5px; }
+        label { display: block; margin-top: 14px; font-size: 13px; color: #cbd5e1; font-weight: 500; }
+        input { width: 100%; padding: 12px; margin-top: 6px; border-radius: 8px; border: 1px solid #374151; background: #030712; color: white; box-sizing: border-box; font-size: 14px; }
+        input:focus { outline: none; border-color: #38bdf8; }
+        button { width: 100%; background: #0284c7; color: white; padding: 12px; border: none; border-radius: 8px; font-weight: 600; margin-top: 24px; cursor: pointer; font-size: 15px; }
+        button:hover { background: #0ea5e9; }
+        .flash { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; text-align: center; }
+        .success { background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #86efac; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; text-align: center; }
+        .string-box { background: #030712; padding: 12px; border-radius: 8px; font-size: 11px; word-break: break-all; color: #38bdf8; margin-top: 12px; border: 1px dashed #374151; max-height: 100px; overflow-y: auto; }
+        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #64748b; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="brand">
+            <h1>⚡ Vivek's Command Center ⚡</h1>
+            <p>Multi-Account Userbot Control Suite</p>
+        </div>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for cat, msg in messages %}
+              <div class="{{ 'success' if cat == 'success' else 'flash' }}">{{ msg }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+        
+        {% if step == 'phone' %}
+        <form method="POST" action="/send_code">
+            <label>API ID:</label>
+            <input type="text" name="api_id" required placeholder="Enter API ID">
+            <label>API Hash:</label>
+            <input type="text" name="api_hash" required placeholder="Enter API Hash">
+            <label>Phone Number (with +91):</label>
+            <input type="text" name="phone" required placeholder="+91xxxxxxxxxx">
+            <button type="submit">Send OTP Code</button>
+        </form>
+        {% elif step == 'otp' %}
+        <form method="POST" action="/verify_otp">
+            <label>Enter Telegram OTP Code:</label>
+            <input type="text" name="otp" required placeholder="12345">
+            <button type="submit">Verify OTP</button>
+        </form>
+        {% elif step == 'password' %}
+        <form method="POST" action="/verify_password">
+            <label>Enter 2FA Cloud Password:</label>
+            <input type="password" name="password" required placeholder="Your 2FA password">
+            <button type="submit">Complete Login</button>
+        </form>
+        {% elif step == 'success' %}
+        <div style="text-align: center;">
+            <p style="color: #4ade80; font-weight: 600; font-size: 16px; margin-bottom: 5px;">✅ Connected Successfully!</p>
+            <p style="font-size: 12px; color: #94a3b8;">Aapki Session String generate ho gayi hai:</p>
+            <div class="string-box">{{ session_string }}</div>
+            <a href="/"><button style="margin-top: 20px;">Connect Another Account</button></a>
+        </div>
+        {% endif %}
+        <div class="footer">Automated by Vivek 🇧🇼</div>
+    </div>
+</body>
+</html>
 """
 
-# ═══════════════ EVENT REGISTRATION FOR EACH CLIENT ═══════════════
+@app.route("/")
+def index():
+    return render_template_string(HTML_TEMPLATE, step="phone")
 
-def register_events(client_inst, client_idx):
+@app.route("/send_code", methods=["POST"])
+def send_code():
+    try:
+        api_id = int(request.form.get("api_id"))
+        api_hash = request.form.get("api_hash").strip()
+        phone = request.form.get("phone").strip()
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        client = TelegramClient(StringSession(), api_id, api_hash, loop=loop)
+        loop.run_until_complete(client.connect())
+        
+        sent = loop.run_until_complete(client.send_code_request(phone))
+        
+        temp_logins["client"] = client
+        temp_logins["phone"] = phone
+        temp_logins["phone_code_hash"] = sent.phone_code_hash
+        temp_logins["loop"] = loop
+        
+        return render_template_string(HTML_TEMPLATE, step="otp")
+    except Exception as e:
+        flash(f"Error: {str(e)}", "error")
+        return redirect(url_for("index"))
+
+@app.route("/verify_otp", methods=["POST"])
+def verify_otp():
+    otp = request.form.get("otp").strip()
+    client = temp_logins.get("client")
+    phone = temp_logins.get("phone")
+    phone_code_hash = temp_logins.get("phone_code_hash")
+    loop = temp_logins.get("loop")
     
-    async def is_authorized(event):
+    try:
+        loop.run_until_complete(client.sign_in(phone=phone, code=otp, phone_code_hash=phone_code_hash))
+        session_str = client.session.save()
+        return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
+    except SessionPasswordNeededError:
+        return render_template_string(HTML_TEMPLATE, step="password")
+    except Exception as e:
+        flash(f"Invalid OTP or Error: {str(e)}", "error")
+        return redirect(url_for("index"))
+
+@app.route("/verify_password", methods=["POST"])
+def verify_password():
+    password = request.form.get("password").strip()
+    client = temp_logins.get("client")
+    loop = temp_logins.get("loop")
+    
+    try:
+        loop.run_until_complete(client.sign_in(password=password))
+        session_str = client.session.save()
+        return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
+    except Exception as e:
+        flash(f"2FA Error: {str(e)}", "error")
+        return redirect(url_for("index"))
+
+# ═══════════════ USERBOT EVENT REGISTRATION & FEATURES ═══════════════
+
+def register_userbot_events(client):
+    
+    async def is_auth(event):
         return event.sender_id == SUPEROWNER_ID or event.out
 
-    @client_inst.on(events.NewMessage(pattern=rf"{P}help$"))
-    async def help_cmd(event):
-        if not await is_authorized(event): return
-        await event.edit(HELP)
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}ping$"))
-    async def ping_cmd(event):
-        if not await is_authorized(event): return
-        start = time.perf_counter()
-        await event.edit("⚡")
-        delta = (time.perf_counter() - start) * 1000
-        await event.edit(f"**🏓 𝙋𝙊𝙉𝙂!**\n`{delta:.2f}𝙢𝙨`")
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}alive$"))
-    async def alive_cmd(event):
-        if not await is_authorized(event): return
-        uptime = datetime.now() - START_TIME
-        h, rem = divmod(int(uptime.total_seconds()), 3600)
-        m, s = divmod(rem, 60)
-        await event.edit(
-            f"**⚡ 𝘼𝙪𝙩𝙤𝙢𝙖𝙩𝙚𝙙 𝘽𝙮 𝙑𝙞v1 🇧🇼 ⚡**\n"
-            f"**𝙑𝙚𝙧𝙨𝙞𝙤𝙣:** `{BOT_VERSION}`\n"
-            f"**⏱️ 𝘾𝙪𝙧𝙧𝙚𝙣𝙩 𝘿𝙚𝙡𝙖𝙮:** `{current_delay}𝙨`\n"
-            f"**👑 𝙎𝙪𝙥𝙚𝙧𝙤𝖜𝙣𝙚𝙧 𝙄𝘿:** `{SUPEROWNER_ID}`\n"
-            f"**👥 𝘼𝙘𝙘𝙤𝙪𝙣𝙩𝙨:** `{len(clients)} 𝗔𝗰𝘁𝗶𝘃𝗲`\n"
-            f"**⏳ 𝙐𝙥𝙩𝙞𝙢𝙚:** `{h}𝙝 {m}𝙢 {s}𝙨`"
+    # 1. EXECUTE MENU COMMAND (Jaisa screenshot me hai)
+    @client.on(events.NewMessage(pattern=rf"{P}execute$"))
+    async def execute_cmd(event):
+        if not await is_auth(event): return
+        menu_text = (
+            "<i>author : V I V E K</i>\n"
+            "<code>────────────────────────</code>\n\n"
+            "› <code>attack</code>\n"
+            "› <code>swipe</code>\n"
+            "› <code>spam</code>\n"
+            "› <code>photospam</code>\n"
+            "› <code>forwardspam</code>\n"
+            "› <code>stickerspam</code>\n"
+            "› <code>autoreply</code>\n"
+            "› <code>mute</code>\n"
+            "› <code>clone</code>\n"
+            "› <code>reverse</code>\n"
+            "› <code>delay</code>\n"
+            "› <code>ping</code>\n"
+            "› <code>stop</code>\n\n"
+            "<code>────────────────────────</code>\n"
+            "<i>author : V I V E K</i>"
         )
+        await event.edit(menu_text, parse_mode='html')
 
-    @client_inst.on(events.NewMessage(pattern=rf"{P}delay\s+(.+)"))
+    # WHISPER / TEST COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}whisper$"))
+    async def whisper_cmd(event):
+        if not await is_auth(event): return
+        await event.edit("┼ V I V E K O P E R A T O R ┼")
+
+    # 2. PING COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}ping$"))
+    async def ping_cmd(event):
+        if not await is_auth(event): return
+        start = asyncio.get_event_loop().time()
+        msg = await event.reply("⚡ Pinging...")
+        end = asyncio.get_event_loop().time()
+        await msg.edit(f"**🏓 Pong!** `{(end - start) * 1000:.2f}ms`")
+
+    # 3. DELAY COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}delay\s+(.+)"))
     async def delay_cmd(event):
         global current_delay
-        if not await is_authorized(event): return
+        if not await is_auth(event): return
         try:
-            new_delay = float(event.pattern_match.group(1).strip())
-            if new_delay < 0:
-                return await event.edit("**❌ Delay cannot be negative!**")
-            current_delay = new_delay
-            await event.edit(f"**⚡ Master Speed Updated!** New delay for all bots: `{current_delay}s`")
+            val = float(event.pattern_match.group(1).strip())
+            current_delay = val
+            await event.reply(f"**⚡ Master delay successfully updated to:** `{current_delay}s`")
         except ValueError:
-            await event.edit("**❌ Invalid format! Example: `.delay 0.5`**")
+            await event.reply("**❌ Invalid number format!**")
 
-    @client_inst.on(events.NewMessage(pattern=rf"{P}autoreply\s+(.+)"))
-    async def autoreply_cmd(event):
-        if not await is_authorized(event): return
-        reply = await event.get_reply_message()
-        if not reply or not reply.sender_id: 
-            return await event.edit("**❌ Reply to a user to set autoreply!**")
-        msg = event.pattern_match.group(1)
-        async with state_lock:
-            auto_replies.setdefault(event.chat_id, {})[reply.sender_id] = msg
-        await event.edit(f"**✨ Autoreply set successfully for user ID:** `{reply.sender_id}`")
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}stopautoreply$"))
-    async def stopautoreply_cmd(event):
-        if not await is_authorized(event): return
-        reply = await event.get_reply_message()
-        if not reply or not reply.sender_id: 
-            return await event.edit("**❌ Reply to a user to stop their autoreply!**")
-        async with state_lock:
-            auto_replies.get(event.chat_id, {}).pop(reply.sender_id, None)
-        await event.edit(f"**✨ Autoreply disabled for user ID:** `{reply.sender_id}`")
-
-    @client_inst.on(events.NewMessage(incoming=True))
-    async def incoming_listener(event):
-        if not event.sender_id: return
-        chat = event.chat_id
-        uid = event.sender_id
-        try:
-            if chat in auto_replies and uid in auto_replies.get(chat, {}):
-                await event.reply(auto_replies[chat][uid])
-        except Exception:
-            pass
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}swipe\s+(.+)"))
+    # 4. SWIPE COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}swipe(?:\s+(.+))?$"))
     async def swipe_cmd(event):
-        if not await is_authorized(event): return
+        if not await is_auth(event): return
         reply = await event.get_reply_message()
         if not reply:
-            return await event.edit("**❌ Reply to a message to start swipe!**")
-        msg = event.pattern_match.group(1)
-        chat = event.chat_id
-        reply_id = reply.id
+            return await event.reply("**❌ Kisi message pe reply karke /swipe command do!**")
+        text = event.pattern_match.group(1) or reply.text
+        chat_id = event.chat_id
+
+        await event.delete()
+        task_key = f"swipe_{chat_id}"
+        if task_key in active_tasks:
+            active_tasks[task_key].cancel()
+
+        async def loop_swipe():
+            try:
+                while True:
+                    await client.send_message(chat_id, text, reply_to=reply.id)
+                    await asyncio.sleep(current_delay)
+            except asyncio.CancelledError:
+                pass
+
+        active_tasks[task_key] = asyncio.create_task(loop_swipe())
+
+    # 5. SPAM COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}spam\s+(\d+)\s+(.+)"))
+    async def spam_cmd(event):
+        if not await is_auth(event): return
+        count = int(event.pattern_match.group(1))
+        text = event.pattern_match.group(2)
+        chat_id = event.chat_id
+        await event.delete()
+        for _ in range(count):
+            await client.send_message(chat_id, text)
+            await asyncio.sleep(current_delay)
+
+    # 6. AUTOREPLY COMMAND
+    autoreply_storage = {}
+    @client.on(events.NewMessage(pattern=rf"{P}autoreply\s+(.+)"))
+    async def autoreply_cmd(event):
+        if not await is_auth(event): return
+        reply = await event.get_reply_message()
+        if not reply or not reply.sender_id:
+            return await event.reply("**❌ Target user par reply karke command do!**")
+        text = event.pattern_match.group(1)
+        chat_id = event.chat_id
+        autoreply_storage.setdefault(chat_id, {})[reply.sender_id] = text
+        await event.reply(f"**✅ Autoreply set for user ID:** `{reply.sender_id}`")
+
+    @client.on(events.NewMessage(incoming=True))
+    async def incoming_autoreply(event):
+        chat_id = event.chat_id
+        sender_id = event.sender_id
+        if chat_id in autoreply_storage and sender_id in autoreply_storage[chat_id]:
+            await event.reply(autoreply_storage[chat_id][sender_id])
+
+    # 7. PHOTOSPAM COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}photospam$"))
+    async def photospam_cmd(event):
+        if not await is_auth(event): return
+        reply = await event.get_reply_message()
+        if not reply or not reply.media:
+            return await event.reply("**❌ Photo pe reply karke /photospam likho!**")
+        chat_id = event.chat_id
+        await event.delete()
         
-        await event.edit(f"**🔥 Firing up swipe raid across all `{len(clients)}` accounts...**")
+        task_key = f"photospam_{chat_id}"
+        async def loop_photo():
+            try:
+                while True:
+                    await client.send_file(chat_id, reply.media)
+                    await asyncio.sleep(current_delay)
+            except asyncio.CancelledError:
+                pass
+        active_tasks[task_key] = asyncio.create_task(loop_photo())
 
-        async with state_lock:
-            if chat not in swipe_tasks:
-                swipe_tasks[chat] = {}
-
-        for idx, c in enumerate(clients):
-            if client_idx in swipe_tasks.get(chat, {}):
-                try:
-                    swipe_tasks[chat][client_idx].cancel()
-                except:
-                    pass
-
-            async def client_loop(cli=c):
-                try:
-                    while True:
-                        try:
-                            await cli.send_message(chat, msg, reply_to=reply_id)
-                        except FloodWaitError as e:
-                            await asyncio.sleep(e.seconds)
-                        except Exception:
-                            pass
-                        await asyncio.sleep(current_delay)
-                except asyncio.CancelledError:
-                    pass
-
-            async with state_lock:
-                swipe_tasks[chat][client_idx] = asyncio.create_task(client_loop())
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}stopswipe$"))
-    async def stopswipe_cmd(event):
-        if not await is_authorized(event): return
-        chat = event.chat_id
-        async with state_lock:
-            if chat in swipe_tasks:
-                for task in swipe_tasks[chat].values():
-                    task.cancel()
-                swipe_tasks.pop(chat, None)
-        await event.edit("**🛑 Swipe broadcast stopped across all bots!**")
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}hunt$"))
-    async def hunt_cmd(event):
-        if not await is_authorized(event): return
+    # 8. FORWARDSPAM COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}forwardspam$"))
+    async def forwardspam_cmd(event):
+        if not await is_auth(event): return
         reply = await event.get_reply_message()
         if not reply:
-            return await event.edit("**❌ Reply to a message to start hunt!**")
-        chat = event.chat_id
-        reply_id = reply.id
-        
-        await event.edit(f"**💥 Firing up hunt raid across all `{len(clients)}` accounts...**")
+            return await event.reply("**❌ Message par reply karke /forwardspam likho!**")
+        chat_id = event.chat_id
+        await event.delete()
 
-        async with state_lock:
-            if chat not in hunt_tasks:
-                hunt_tasks[chat] = {}
-
-        for idx, c in enumerate(clients):
-            if client_idx in hunt_tasks.get(chat, {}):
-                try:
-                    hunt_tasks[chat][client_idx].cancel()
-                except:
-                    pass
-
-            async def client_hunt_loop(cli=c):
-                try:
-                    while True:
-                        try:
-                            msg = random.choice(RAID_POOL)
-                            await cli.send_message(chat, msg, reply_to=reply_id)
-                        except FloodWaitError as e:
-                            await asyncio.sleep(e.seconds)
-                        except Exception:
-                            pass
-                        await asyncio.sleep(current_delay)
-                except asyncio.CancelledError:
-                    pass
-
-            async with state_lock:
-                hunt_tasks[chat][client_idx] = asyncio.create_task(client_hunt_loop())
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}stophunt$"))
-    async def stophunt_cmd(event):
-        if not await is_authorized(event): return
-        chat = event.chat_id
-        async with state_lock:
-            if chat in hunt_tasks:
-                for task in hunt_tasks[chat].values():
-                    task.cancel()
-                hunt_tasks.pop(chat, None)
-        await event.edit("**🛑 Hunt session stopped across all bots!**")
-
-    @client_inst.on(events.NewMessage(pattern=rf"{P}add2(\s+(.+))?$"))
-    async def add2_cmd(event):
-        if not await is_authorized(event): return
-        match_arg = event.pattern_match.group(2)
-        usernames = [u.strip() for u in match_arg.split()] if match_arg else DEFAULT_ADD2_BOTS
-        await event.edit(f"**🔄 Pulling up `{len(usernames)}` bots (.add2) into the chat...**")
-        
-        added, failed = 0, 0
-        for uname in usernames:
+        task_key = f"fwd_{chat_id}"
+        async def loop_fwd():
             try:
-                clean_uname = uname.replace("@", "")
-                user_entity = await client_inst.get_entity(clean_uname)
-                await client_inst(InviteToChannelRequest(channel=event.chat_id, users=[user_entity]))
-                added += 1
-            except Exception as e:
-                log.error(f"Failed to add {uname}: {e}")
-                failed += 1
-            await asyncio.sleep(1)
-            
-        await event.edit(f"**✨ Add2 Succeeded!**\n• Added: `{added}`\n• Failed: `{failed}`")
+                while True:
+                    await client.forward_messages(chat_id, reply)
+                    await asyncio.sleep(current_delay)
+            except asyncio.CancelledError:
+                pass
+        active_tasks[task_key] = asyncio.create_task(loop_fwd())
 
-    @client_inst.on(events.NewMessage(pattern=rf"{P}add3$"))
-    async def add3_cmd(event):
-        if not await is_authorized(event): return
-        usernames = DEFAULT_ADD3_BOTS
-        await event.edit(f"**🔄 Pulling up `{len(usernames)}` bots (.add3) into the chat...**")
-        
-        added, failed = 0, 0
-        for uname in usernames:
+    # 9. STICKERSPAM COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}stickerspam$"))
+    async def stickerspam_cmd(event):
+        if not await is_auth(event): return
+        reply = await event.get_reply_message()
+        if not reply or not reply.sticker:
+            return await event.reply("**❌ Sticker par reply karke /stickerspam likho!**")
+        chat_id = event.chat_id
+        await event.delete()
+
+        task_key = f"sticker_{chat_id}"
+        async def loop_sticker():
             try:
-                clean_uname = uname.replace("@", "")
-                user_entity = await client_inst.get_entity(clean_uname)
-                await client_inst(InviteToChannelRequest(channel=event.chat_id, users=[user_entity]))
-                added += 1
-            except Exception as e:
-                log.error(f"Failed to add {uname}: {e}")
-                failed += 1
-            await asyncio.sleep(1)
-            
-        await event.edit(f"**✨ Add3 Succeeded!**\n• Added: `{added}`\n• Failed: `{failed}`")
+                while True:
+                    await client.send_file(chat_id, reply.sticker)
+                    await asyncio.sleep(current_delay)
+            except asyncio.CancelledError:
+                pass
+        active_tasks[task_key] = asyncio.create_task(loop_sticker())
 
-    @client_inst.on(events.NewMessage(pattern=rf"{P}join\s+(.+)"))
-    async def join_cmd(event):
-        if not await is_authorized(event): return
-        link = event.pattern_match.group(1).strip()
-        await event.edit(f"**🔄 Pulling up with all {len(clients)} accounts...**")
-        
-        success = 0
-        for idx, c in enumerate(clients, 1):
+    # 10. MUTE COMMAND
+    muted_users = set()
+    @client.on(events.NewMessage(pattern=rf"{P}mute$"))
+    async def mute_cmd(event):
+        if not await is_auth(event): return
+        reply = await event.get_reply_message()
+        if not reply or not reply.sender_id:
+            return await event.reply("**❌ User par reply karke /mute likho!**")
+        muted_users.add(reply.sender_id)
+        await event.reply(f"**🔇 Muted user ID:** `{reply.sender_id}`")
+
+    @client.on(events.NewMessage(incoming=True))
+    async def mute_listener(event):
+        if event.sender_id in muted_users:
             try:
-                if "+" in link or "joinchat" in link:
-                    from telethon.tl.functions.messages import ImportChatInviteRequest
-                    hash_val = link.split("/")[-1].replace("+", "")
-                    await c(ImportChatInviteRequest(hash_val))
-                else:
-                    entity = await c.get_entity(link)
-                    await c(JoinChannelRequest(entity))
-                success += 1
-            except Exception as e:
-                log.error(f"Account {idx} join error: {e}")
-            await asyncio.sleep(1)
-            
-        await event.edit(f"**✨ Successfully infiltrated with `{success}/{len(clients)}` accounts!**")
+                await event.delete()
+            except Exception:
+                pass
 
-    @client_inst.on(events.NewMessage(pattern=rf"{P}stopall$"))
-    async def stopall_cmd(event):
-        if not await is_authorized(event): return
-        chat = event.chat_id
-        async with state_lock:
-            if chat in swipe_tasks:
-                for task in swipe_tasks[chat].values():
-                    task.cancel()
-                swipe_tasks.pop(chat, None)
-            if chat in hunt_tasks:
-                for task in hunt_tasks[chat].values():
-                    task.cancel()
-                hunt_tasks.pop(chat, None)
-            auto_replies.pop(chat, None)
-        await event.edit("**⛔ MISSION ABORTED: All active tasks wiped in this chat!**")
-        await safe_delete(event, 1)
-
-# ═══════════════ MAIN RUNNER ═══════════════
-
-async def main():
-    global clients
-    
-    for idx, conf in enumerate(ACCOUNTS):
-        c = TelegramClient(conf["session"], conf["api_id"], conf["api_hash"])
-        await c.start()
-        me = await c.get_me()
-        clients.append(c)
+    # 11. CLONE COMMAND
+    original_profile = {}
+    @client.on(events.NewMessage(pattern=rf"{P}clone$"))
+    async def clone_cmd(event):
+        if not await is_auth(event): return
+        reply = await event.get_reply_message()
+        target = reply.sender_id if reply else None
+        if not target:
+            return await event.reply("**❌ Target user par reply karke /clone likho!**")
         
-        register_events(c, idx)
-        log.info(f"✅ Account online: {me.first_name} (ID: {me.id})")
+        try:
+            me = await client.get_me()
+            my_full = await client(GetFullUserRequest(me.id))
+            
+            original_profile['first_name'] = me.first_name
+            original_profile['last_name'] = me.last_name or ""
+            original_profile['about'] = my_full.about or ""
+            
+            old_photos = await client.get_profile_photos('me', limit=1)
+            if old_photos:
+                original_profile['photo'] = await client.download_profile_photo(old_photos[0])
+            else:
+                original_profile['photo'] = None
 
-    log.info(f"🚀 All {len(clients)} userbot accounts locked in under Superowner ID: {SUPEROWNER_ID}!")
-    
-    await asyncio.gather(*(c.run_until_disconnected() for c in clients))
+            user_full = await client(GetFullUserRequest(target))
+            user_entity = await client.get_entity(target)
+            
+            from telethon.tl.functions.account import UpdateProfileRequest
+            await client(UpdateProfileRequest(
+                first_name=user_entity.first_name,
+                last_name=user_entity.last_name or "",
+                about=user_full.about or ""
+            ))
+            
+            photo = await client.download_profile_photo(target)
+            if photo:
+                await client(UploadProfilePhotoRequest(file=await client.upload_file(photo)))
+                os.remove(photo)
+                
+            await event.reply("**✨ Profile successfully cloned! Backup saved.**")
+        except Exception as e:
+            await event.reply(f"**❌ Clone Failed:** {str(e)}")
+
+    # 12. REVERSE COMMAND (Restore original profile)
+    @client.on(events.NewMessage(pattern=rf"{P}reverse$"))
+    async def reverse_cmd(event):
+        if not await is_auth(event): return
+        if not original_profile:
+            return await event.reply("**❌ Pehle /clone use karo, koi backup available nahi hai!**")
+        
+        try:
+            from telethon.tl.functions.account import UpdateProfileRequest
+            await client(UpdateProfileRequest(
+                first_name=original_profile['first_name'],
+                last_name=original_profile['last_name'],
+                about=original_profile['about']
+            ))
+            
+            if original_profile.get('photo') and os.path.exists(original_profile['photo']):
+                await client(UploadProfilePhotoRequest(file=await client.upload_file(original_profile['photo'])))
+                os.remove(original_profile['photo'])
+
+            await event.reply("**✨ Profile successfully restored (reverse)!**")
+        except Exception as e:
+            await event.reply(f"**❌ Reverse Failed:** {str(e)}")
+
+    # STOP ALL ACTIVE LOOPS VIA COMMAND
+    @client.on(events.NewMessage(pattern=rf"{P}stop$"))
+    async def stop_cmd(event):
+        if not await is_auth(event): return
+        chat_id = event.chat_id
+        count = 0
+        for key in list(active_tasks.keys()):
+            if str(chat_id) in key:
+                active_tasks[key].cancel()
+                del active_tasks[key]
+                count += 1
+        await event.reply(f"**🛑 Stopped `{count}` active background tasks in this chat!**")
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
+    threading.Thread(target=run_flask, daemon=True).start()
+    log.info("🌐 Vivek's Command Center & Userbot Backend started successfully!")
+    
     try:
-        asyncio.run(main())
+        loop = asyncio.get_event_loop()
+        loop.run_forever()
     except KeyboardInterrupt:
-        log.info("Bot gracefully terminated.")
+        pass
