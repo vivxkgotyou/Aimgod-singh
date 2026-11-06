@@ -15,7 +15,7 @@ app.secret_key = "vivek_super_secret_key"
 
 temp_logins = {}
 clients = []
-active_tasks = {}
+active_tasks = {}  # {(chat_id, client_id): task}
 
 SUPEROWNER_ID = 6133172474
 P = r"/"
@@ -143,11 +143,9 @@ def verify_otp():
         loop.run_until_complete(client.sign_in(phone=phone, code=otp, phone_code_hash=phone_code_hash))
         session_str = client.session.save()
         
-        # Save session string to file
         with open(SESSION_FILE, "a") as f:
             f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
             
-        # Start client background task dynamically
         asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
 
         return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
@@ -167,11 +165,9 @@ def verify_password():
         loop.run_until_complete(client.sign_in(password=password))
         session_str = client.session.save()
         
-        # Save session string to file
         with open(SESSION_FILE, "a") as f:
             f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
             
-        # Start client background task dynamically
         asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
 
         return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
@@ -181,15 +177,16 @@ def verify_password():
 
 # ═══════════════ USERBOT EVENT REGISTRATION & FEATURES ═══════════════
 
-def register_userbot_events(client):
+def register_userbot_events(client, client_id):
     async def is_auth(event):
-        return event.sender_id == SUPEROWNER_ID or event.out
+        # Strict check: Command must be sent FROM this specific client account itself
+        return event.out and event.sender_id == SUPEROWNER_ID
 
     @client.on(events.NewMessage(pattern=rf"{P}execute$"))
     async def execute_cmd(event):
         if not await is_auth(event): return
         menu_text = (
-            "<i>author : V I V E K</i>\n"
+            f"<i>author : V I V E K [Acc ID: {client_id}]</i>\n"
             "<code>────────────────────────</code>\n\n"
             "› <code>attack</code>\n"
             "› <code>swipe</code>\n"
@@ -205,14 +202,14 @@ def register_userbot_events(client):
             "› <code>ping</code>\n"
             "› <code>stop</code>\n\n"
             "<code>────────────────────────</code>\n"
-            "<i>author : V I V E K</i>"
+            f"<i>author : V I V E K [Acc ID: {client_id}]</i>"
         )
         await event.edit(menu_text, parse_mode='html')
 
     @client.on(events.NewMessage(pattern=rf"{P}whisper$"))
     async def whisper_cmd(event):
         if not await is_auth(event): return
-        await event.edit("┼ V I V E K O P E R A T O R ┼")
+        await event.edit(f"┼ V I V E K O P E R A T O R [Acc: {client_id}] ┼")
 
     @client.on(events.NewMessage(pattern=rf"{P}ping$"))
     async def ping_cmd(event):
@@ -220,7 +217,7 @@ def register_userbot_events(client):
         start = asyncio.get_event_loop().time()
         msg = await event.reply("⚡ Pinging...")
         end = asyncio.get_event_loop().time()
-        await msg.edit(f"**🏓 Pong!** `{(end - start) * 1000:.2f}ms`")
+        await msg.edit(f"**🏓 Pong [{client_id}]!** `{(end - start) * 1000:.2f}ms`")
 
     @client.on(events.NewMessage(pattern=rf"{P}delay\s+(.+)"))
     async def delay_cmd(event):
@@ -229,7 +226,7 @@ def register_userbot_events(client):
         try:
             val = float(event.pattern_match.group(1).strip())
             current_delay = val
-            await event.reply(f"**⚡ Master delay successfully updated to:** `{current_delay}s`")
+            await event.reply(f"**⚡ Master delay updated for account `{client_id}` to:** `{current_delay}s`")
         except ValueError:
             await event.reply("**❌ Invalid number format!**")
 
@@ -243,7 +240,7 @@ def register_userbot_events(client):
         chat_id = event.chat_id
 
         await event.delete()
-        task_key = f"swipe_{chat_id}"
+        task_key = (chat_id, client_id)
         if task_key in active_tasks:
             active_tasks[task_key].cancel()
 
@@ -296,7 +293,7 @@ def register_userbot_events(client):
         chat_id = event.chat_id
         await event.delete()
         
-        task_key = f"photospam_{chat_id}"
+        task_key = (chat_id, client_id)
         async def loop_photo():
             try:
                 while True:
@@ -315,7 +312,7 @@ def register_userbot_events(client):
         chat_id = event.chat_id
         await event.delete()
 
-        task_key = f"fwd_{chat_id}"
+        task_key = (chat_id, client_id)
         async def loop_fwd():
             try:
                 while True:
@@ -334,7 +331,7 @@ def register_userbot_events(client):
         chat_id = event.chat_id
         await event.delete()
 
-        task_key = f"sticker_{chat_id}"
+        task_key = (chat_id, client_id)
         async def loop_sticker():
             try:
                 while True:
@@ -432,20 +429,21 @@ def register_userbot_events(client):
         chat_id = event.chat_id
         count = 0
         for key in list(active_tasks.keys()):
-            if str(chat_id) in key:
+            c_id, client_acc_id = key
+            if c_id == chat_id and client_acc_id == client_id:
                 active_tasks[key].cancel()
                 del active_tasks[key]
                 count += 1
-        await event.reply(f"**🛑 Stopped `{count}` active background tasks in this chat!**")
+        await event.reply(f"**🛑 Stopped `{count}` active background tasks for this account!**")
 
 async def start_single_client(api_id, api_hash, session_str):
     try:
         client = TelegramClient(StringSession(session_str), int(api_id), api_hash)
         await client.start()
-        register_userbot_events(client)
-        clients.append(client)
         me = await client.get_me()
-        log.info(f"✅ Userbot connected: {me.first_name} (ID: {me.id})")
+        register_userbot_events(client, me.id)
+        clients.append(client)
+        log.info(f"✅ Userbot connected independently: {me.first_name} (ID: {me.id})")
         await client.run_until_disconnected()
     except Exception as e:
         log.error(f"Client start error: {e}")
@@ -475,9 +473,6 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
-    # Start Flask Web Server in background thread
     threading.Thread(target=run_flask, daemon=True).start()
     log.info("🌐 Web Panel started successfully!")
-    
-    # Start Userbot Event Loop
     run_bot_loop()
