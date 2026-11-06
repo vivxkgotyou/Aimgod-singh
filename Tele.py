@@ -1,3 +1,4 @@
+
 import asyncio
 import os
 import threading
@@ -18,7 +19,7 @@ clients = []
 active_tasks = {}
 
 SUPEROWNER_ID = 6133172474
-P = r"/"  # Prefix changed to / as requested
+P = r"/"
 current_delay = 0.5
 
 logging.basicConfig(level=logging.INFO)
@@ -167,7 +168,6 @@ def register_userbot_events(client):
     async def is_auth(event):
         return event.sender_id == SUPEROWNER_ID or event.out
 
-    # 1. EXECUTE MENU COMMAND (Jaisa screenshot me hai)
     @client.on(events.NewMessage(pattern=rf"{P}execute$"))
     async def execute_cmd(event):
         if not await is_auth(event): return
@@ -192,13 +192,11 @@ def register_userbot_events(client):
         )
         await event.edit(menu_text, parse_mode='html')
 
-    # WHISPER / TEST COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}whisper$"))
     async def whisper_cmd(event):
         if not await is_auth(event): return
         await event.edit("┼ V I V E K O P E R A T O R ┼")
 
-    # 2. PING COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}ping$"))
     async def ping_cmd(event):
         if not await is_auth(event): return
@@ -207,7 +205,6 @@ def register_userbot_events(client):
         end = asyncio.get_event_loop().time()
         await msg.edit(f"**🏓 Pong!** `{(end - start) * 1000:.2f}ms`")
 
-    # 3. DELAY COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}delay\s+(.+)"))
     async def delay_cmd(event):
         global current_delay
@@ -219,7 +216,6 @@ def register_userbot_events(client):
         except ValueError:
             await event.reply("**❌ Invalid number format!**")
 
-    # 4. SWIPE COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}swipe(?:\s+(.+))?$"))
     async def swipe_cmd(event):
         if not await is_auth(event): return
@@ -244,7 +240,6 @@ def register_userbot_events(client):
 
         active_tasks[task_key] = asyncio.create_task(loop_swipe())
 
-    # 5. SPAM COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}spam\s+(\d+)\s+(.+)"))
     async def spam_cmd(event):
         if not await is_auth(event): return
@@ -256,7 +251,6 @@ def register_userbot_events(client):
             await client.send_message(chat_id, text)
             await asyncio.sleep(current_delay)
 
-    # 6. AUTOREPLY COMMAND
     autoreply_storage = {}
     @client.on(events.NewMessage(pattern=rf"{P}autoreply\s+(.+)"))
     async def autoreply_cmd(event):
@@ -276,7 +270,6 @@ def register_userbot_events(client):
         if chat_id in autoreply_storage and sender_id in autoreply_storage[chat_id]:
             await event.reply(autoreply_storage[chat_id][sender_id])
 
-    # 7. PHOTOSPAM COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}photospam$"))
     async def photospam_cmd(event):
         if not await is_auth(event): return
@@ -296,7 +289,6 @@ def register_userbot_events(client):
                 pass
         active_tasks[task_key] = asyncio.create_task(loop_photo())
 
-    # 8. FORWARDSPAM COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}forwardspam$"))
     async def forwardspam_cmd(event):
         if not await is_auth(event): return
@@ -316,7 +308,6 @@ def register_userbot_events(client):
                 pass
         active_tasks[task_key] = asyncio.create_task(loop_fwd())
 
-    # 9. STICKERSPAM COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}stickerspam$"))
     async def stickerspam_cmd(event):
         if not await is_auth(event): return
@@ -336,7 +327,6 @@ def register_userbot_events(client):
                 pass
         active_tasks[task_key] = asyncio.create_task(loop_sticker())
 
-    # 10. MUTE COMMAND
     muted_users = set()
     @client.on(events.NewMessage(pattern=rf"{P}mute$"))
     async def mute_cmd(event):
@@ -355,7 +345,6 @@ def register_userbot_events(client):
             except Exception:
                 pass
 
-    # 11. CLONE COMMAND
     original_profile = {}
     @client.on(events.NewMessage(pattern=rf"{P}clone$"))
     async def clone_cmd(event):
@@ -398,7 +387,6 @@ def register_userbot_events(client):
         except Exception as e:
             await event.reply(f"**❌ Clone Failed:** {str(e)}")
 
-    # 12. REVERSE COMMAND (Restore original profile)
     @client.on(events.NewMessage(pattern=rf"{P}reverse$"))
     async def reverse_cmd(event):
         if not await is_auth(event): return
@@ -421,7 +409,6 @@ def register_userbot_events(client):
         except Exception as e:
             await event.reply(f"**❌ Reverse Failed:** {str(e)}")
 
-    # STOP ALL ACTIVE LOOPS VIA COMMAND
     @client.on(events.NewMessage(pattern=rf"{P}stop$"))
     async def stop_cmd(event):
         if not await is_auth(event): return
@@ -443,7 +430,11 @@ if __name__ == "__main__":
     log.info("🌐 Vivek's Command Center & Userbot Backend started successfully!")
     
     try:
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         loop.run_forever()
     except KeyboardInterrupt:
         pass
