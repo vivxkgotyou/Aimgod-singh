@@ -2,7 +2,7 @@ import asyncio
 import os
 import threading
 import logging
-from flask import Flask, render_template_string, request, redirect, url_for, session, flash
+from flask import Flask, render_template_string, request, redirect, url_for, flash
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
@@ -14,6 +14,7 @@ app.secret_key = "vivek_super_secret_key"
 
 temp_logins = {}
 active_tasks = {}
+running_clients = {}  # {session_str: client_instance}
 
 SUPEROWNER_ID = 6133172474
 P = r"/"
@@ -32,26 +33,31 @@ HTML_TEMPLATE = """
     <title>Vivek's Command Center</title>
     <style>
         body { background-color: #0b0f19; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .card { background: #111827; padding: 35px; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid #1f2937; }
-        .brand { text-align: center; margin-bottom: 25px; }
-        .brand h1 { color: #38bdf8; font-size: 24px; margin: 0; font-weight: 700; }
-        .brand p { color: #94a3b8; font-size: 13px; margin-top: 5px; }
-        label { display: block; margin-top: 14px; font-size: 13px; color: #cbd5e1; font-weight: 500; }
-        input { width: 100%; padding: 12px; margin-top: 6px; border-radius: 8px; border: 1px solid #374151; background: #030712; color: white; box-sizing: border-box; font-size: 14px; }
-        input:focus { outline: none; border-color: #38bdf8; }
-        button { width: 100%; background: #0284c7; color: white; padding: 12px; border: none; border-radius: 8px; font-weight: 600; margin-top: 24px; cursor: pointer; font-size: 15px; }
+        .card { background: #111827; padding: 30px; border-radius: 16px; width: 100%; max-width: 500px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid #1f2937; }
+        .brand { text-align: center; margin-bottom: 20px; }
+        .brand h1 { color: #38bdf8; font-size: 22px; margin: 0; font-weight: 700; }
+        .brand p { color: #94a3b8; font-size: 12px; margin-top: 5px; }
+        label { display: block; margin-top: 12px; font-size: 13px; color: #cbd5e1; font-weight: 500; }
+        input { width: 100%; padding: 10px; margin-top: 5px; border-radius: 8px; border: 1px solid #374151; background: #030712; color: white; box-sizing: border-box; font-size: 14px; }
+        button { width: 100%; background: #0284c7; color: white; padding: 10px; border: none; border-radius: 8px; font-weight: 600; margin-top: 18px; cursor: pointer; font-size: 14px; }
         button:hover { background: #0ea5e9; }
-        .flash { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; text-align: center; }
-        .success { background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #86efac; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; text-align: center; }
-        .string-box { background: #030712; padding: 12px; border-radius: 8px; font-size: 11px; word-break: break-all; color: #38bdf8; margin-top: 12px; border: 1px dashed #374151; max-height: 100px; overflow-y: auto; }
+        .flash { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px; text-align: center; }
+        .success { background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #86efac; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px; text-align: center; }
+        .account-box { background: #1f2937; padding: 12px; border-radius: 8px; margin-top: 10px; border: 1px solid #374151; display: flex; justify-content: space-between; align-items: center; }
+        .account-info { font-size: 13px; color: #e2e8f0; }
+        .btn-danger { background: #ef4444; width: auto; padding: 6px 12px; margin: 0; font-size: 12px; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #22c55e; width: auto; padding: 6px 12px; margin: 0; font-size: 12px; }
+        .btn-success:hover { background: #16a34a; }
         .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #64748b; }
+        hr { border: 0; border-top: 1px solid #1f2937; margin: 20px 0; }
     </style>
 </head>
 <body>
     <div class="card">
         <div class="brand">
             <h1>⚡ Vivek's Command Center ⚡</h1>
-            <p>Multi-Account Userbot Control Suite</p>
+            <p>Manage All Userbot Accounts</p>
         </div>
         
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -72,6 +78,28 @@ HTML_TEMPLATE = """
             <input type="text" name="phone" required placeholder="+91xxxxxxxxxx">
             <button type="submit">Send OTP Code</button>
         </form>
+        
+        <hr>
+        <h3 style="font-size: 15px; color: #38bdf8; margin-bottom: 10px;">📱 Connected Accounts ({{ accounts|length }})</h3>
+        {% if accounts %}
+            {% for acc in accounts %}
+            <div class="account-box">
+                <div class="account-info">
+                    <b>{{ acc.name }}</b><br>
+                    <span style="color: #94a3b8; font-size: 11px;">ID: {{ acc.id }} | Status: {{ acc.status }}</span>
+                </div>
+                <div>
+                    {% if acc.status == 'Offline' %}
+                    <a href="/host/{{ loop.index0 }}"><button class="btn-success">Host</button></a>
+                    {% endif %}
+                    <a href="/delete/{{ loop.index0 }}"><button class="btn-danger">Delete</button></a>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="font-size: 12px; color: #64748b; text-align: center;">No accounts added yet.</p>
+        {% endif %}
+
         {% elif step == 'otp' %}
         <form method="POST" action="/verify_otp">
             <label>Enter Telegram OTP Code:</label>
@@ -84,13 +112,6 @@ HTML_TEMPLATE = """
             <input type="password" name="password" required placeholder="Your 2FA password">
             <button type="submit">Complete Login</button>
         </form>
-        {% elif step == 'success' %}
-        <div style="text-align: center;">
-            <p style="color: #4ade80; font-weight: 600; font-size: 16px; margin-bottom: 5px;">✅ Connected Successfully!</p>
-            <p style="font-size: 12px; color: #94a3b8;">Session saved & bot activated automatically:</p>
-            <div class="string-box">{{ session_string }}</div>
-            <a href="/"><button style="margin-top: 20px;">Connect Another Account</button></a>
-        </div>
         {% endif %}
         <div class="footer">Automated by Vivek 🇧🇼</div>
     </div>
@@ -98,9 +119,26 @@ HTML_TEMPLATE = """
 </html>
 """
 
+def get_saved_accounts():
+    accounts = []
+    if not os.path.exists(SESSION_FILE):
+        return accounts
+    with open(SESSION_FILE, "r") as f:
+        lines = f.readlines()
+    for idx, line in enumerate(lines):
+        parts = line.strip().split("|")
+        if len(parts) == 3:
+            api_id, api_hash, session_str = parts
+            status = "Online" if session_str in running_clients else "Offline"
+            name = running_clients.get(session_str, {}).get("name", f"Account {idx+1}")
+            acc_id = running_clients.get(session_str, {}).get("id", "Unknown")
+            accounts.append({"name": name, "id": acc_id, "status": status, "api_id": api_id, "api_hash": api_hash, "session": session_str})
+    return accounts
+
 @app.route("/")
 def index():
-    return render_template_string(HTML_TEMPLATE, step="phone")
+    accounts = get_saved_accounts()
+    return render_template_string(HTML_TEMPLATE, step="phone", accounts=accounts)
 
 @app.route("/send_code", methods=["POST"])
 def send_code():
@@ -123,7 +161,7 @@ def send_code():
         temp_logins["api_hash"] = api_hash
         temp_logins["loop"] = loop
         
-        return render_template_string(HTML_TEMPLATE, step="otp")
+        return render_template_string(HTML_TEMPLATE, step="otp", accounts=[])
     except Exception as e:
         flash(f"Error: {str(e)}", "error")
         return redirect(url_for("index"))
@@ -144,9 +182,10 @@ def verify_otp():
             f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
             
         asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
-        return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
+        flash("Account connected successfully!", "success")
+        return redirect(url_for("index"))
     except SessionPasswordNeededError:
-        return render_template_string(HTML_TEMPLATE, step="password")
+        return render_template_string(HTML_TEMPLATE, step="password", accounts=[])
     except Exception as e:
         flash(f"Invalid OTP or Error: {str(e)}", "error")
         return redirect(url_for("index"))
@@ -165,10 +204,43 @@ def verify_password():
             f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
             
         asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
-        return render_template_string(HTML_TEMPLATE, step="success", session_string=session_str)
+        flash("Account connected successfully!", "success")
+        return redirect(url_for("index"))
     except Exception as e:
         flash(f"2FA Error: {str(e)}", "error")
         return redirect(url_for("index"))
+
+@app.route("/delete/<int:index>")
+def delete_account(index):
+    if not os.path.exists(SESSION_FILE):
+        return redirect(url_for("index"))
+    with open(SESSION_FILE, "r") as f:
+        lines = f.readlines()
+    if 0 <= index < len(lines):
+        parts = lines[index].strip().split("|")
+        if len(parts) == 3:
+            s_str = parts[2]
+            if s_str in running_clients:
+                try:
+                    asyncio.run_coroutine_threadsafe(running_clients[s_str]["client"].disconnect(), bot_loop)
+                    del running_clients[s_str]
+                except Exception:
+                    pass
+        lines.pop(index)
+        with open(SESSION_FILE, "w") as f:
+            f.writelines(lines)
+        flash("Account deleted successfully!", "success")
+    return redirect(url_for("index"))
+
+@app.route("/host/<int:index>")
+def host_account(index):
+    accounts = get_saved_accounts()
+    if 0 <= index < len(accounts):
+        acc = accounts[index]
+        if acc["session"] not in running_clients:
+            asyncio.run_coroutine_threadsafe(start_single_client(acc["api_id"], acc["api_hash"], acc["session"]), bot_loop)
+            flash(f"Hosting started for {acc['name']}!", "success")
+    return redirect(url_for("index"))
 
 # ═══════════════ USERBOT COMMAND REGISTRATION ═══════════════
 
@@ -403,9 +475,10 @@ def register_userbot_events(client, client_id):
 
 async def start_single_client(api_id, api_hash, session_str):
     try:
-        client = TelegramClient(StringSession(session_str), int(api_id), api_hash)
+        client = TelegramClient(StringSession(session_str), int(api_id), int(api_hash) if str(api_hash).isdigit() else api_hash)
         await client.start()
         me = await client.get_me()
+        running_clients[session_str] = {"client": client, "name": me.first_name, "id": me.id}
         register_userbot_events(client, me.id)
         log.info(f"✅ Userbot ready: {me.first_name} (ID: {me.id})")
         await client.run_until_disconnected()
