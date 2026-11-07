@@ -4,11 +4,12 @@ import threading
 import logging
 from flask import Flask, render_template_string, request, redirect, url_for, flash
 from telethon import TelegramClient, events
-from telethon.errors import SessionPasswordNeededError
+from telethon.errors import SessionPasswordNeededError, UserAlreadyParticipantError
 from telethon.sessions import StringSession
 from telethon.tl.functions.photos import UploadProfilePhotoRequest
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.tl.functions.account import UpdateProfileRequest
 
 app = Flask(__name__)
@@ -23,7 +24,6 @@ P = r"/"
 current_delay = 1.0
 SESSION_FILE = "sessions.txt"
 
-# Tera diya hua naya custom API credentials
 DEFAULT_API_ID = 30357864
 DEFAULT_API_HASH = "8d8a1027816b1724b0b420480ea06a6f"
 
@@ -259,7 +259,7 @@ def register_userbot_events(client, client_id):
             "› <code>mute</code>\n"
             "› <code>clone</code>\n"
             "› <code>reverse</code>\n"
-            "› <code>invite</code>\n"
+            "› <code>join &lt;link&gt;</code>\n"
             "› <code>bio</code>\n"
             "› <code>dp</code>\n"
             "› <code>name</code>\n"
@@ -289,21 +289,28 @@ def register_userbot_events(client, client_id):
         except ValueError:
             await event.reply("**❌ Invalid number!**")
 
-    @client.on(events.NewMessage(pattern=rf"{P}invite$"))
-    async def invite_cmd(event):
+    # 🚀 /join <link> COMMAND: Join public or private invite link with all hosted accounts
+    @client.on(events.NewMessage(pattern=rf"{P}join\s+(.+)"))
+    async def join_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
-        chat = await event.get_chat()
-        await event.reply("🔄 Joining this chat with all active hosted accounts...")
+        link = event.pattern_match.group(1).strip()
+        await event.reply("🔄 Joining link with all active hosted accounts...")
         success_count = 0
         for s_str, data in running_clients.items():
             acc_client = data["client"]
             try:
-                await acc_client(JoinChannelRequest(chat))
+                if "joinchat/" in link or "+" in link:
+                    invite_hash = link.split("/")[-1].replace("+", "")
+                    await acc_client(ImportChatInviteRequest(invite_hash))
+                else:
+                    await acc_client(JoinChannelRequest(link))
                 success_count += 1
                 await asyncio.sleep(1)
+            except UserAlreadyParticipantError:
+                success_count += 1
             except Exception as e:
                 log.error(f"Join error: {e}")
-        await event.reply(f"**✅ Successfully joined with `{success_count}` accounts!**")
+        await event.reply(f"**✅ Total `{success_count}` accounts have joined the chat!**")
 
     @client.on(events.NewMessage(pattern=rf"{P}bio\s+(.+)"))
     async def bio_cmd(event):
