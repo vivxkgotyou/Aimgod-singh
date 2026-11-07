@@ -23,8 +23,9 @@ P = r"/"
 current_delay = 1.0
 SESSION_FILE = "sessions.txt"
 
-DEFAULT_API_ID = 23377758
-DEFAULT_API_HASH = "b91f53d1000632b509fca951756cfef3"
+# Tera diya hua naya custom API credentials
+DEFAULT_API_ID = 30357864
+DEFAULT_API_HASH = "8d8a1027816b1724b0b420480ea06a6f"
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("VIV1-WEB-PANEL")
@@ -288,7 +289,6 @@ def register_userbot_events(client, client_id):
         except ValueError:
             await event.reply("**❌ Invalid number!**")
 
-    # 🚀 /invite COMMAND: Join chat with all hosted accounts
     @client.on(events.NewMessage(pattern=rf"{P}invite$"))
     async def invite_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
@@ -305,7 +305,6 @@ def register_userbot_events(client, client_id):
                 log.error(f"Join error: {e}")
         await event.reply(f"**✅ Successfully joined with `{success_count}` accounts!**")
 
-    # 🚀 /bio COMMAND: Set bio for all hosted accounts
     @client.on(events.NewMessage(pattern=rf"{P}bio\s+(.+)"))
     async def bio_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
@@ -315,17 +314,13 @@ def register_userbot_events(client, client_id):
         for s_str, data in running_clients.items():
             acc_client = data["client"]
             try:
-                me_full = await acc_client(GetFullUserRequest('me'))
-                await acc_client(UpdateProfileRequest(
-                    about=new_bio
-                ))
+                await acc_client(UpdateProfileRequest(about=new_bio))
                 count += 1
                 await asyncio.sleep(0.5)
             except Exception as e:
                 log.error(f"Bio update error: {e}")
         await event.reply(f"**✅ Bio updated successfully for `{count}` accounts!**")
 
-    # 🚀 /name COMMAND: Set name for all hosted accounts
     @client.on(events.NewMessage(pattern=rf"{P}name\s+(.+)"))
     async def name_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
@@ -335,17 +330,13 @@ def register_userbot_events(client, client_id):
         for s_str, data in running_clients.items():
             acc_client = data["client"]
             try:
-                await acc_client(UpdateProfileRequest(
-                    first_name=new_name,
-                    last_name=""
-                ))
+                await acc_client(UpdateProfileRequest(first_name=new_name, last_name=""))
                 count += 1
                 await asyncio.sleep(0.5)
             except Exception as e:
                 log.error(f"Name update error: {e}")
         await event.reply(f"**✅ Name updated successfully for `{count}` accounts!**")
 
-    # 🚀 /dp COMMAND: Set replied photo as DP for all hosted accounts
     @client.on(events.NewMessage(pattern=rf"{P}dp$"))
     async def dp_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
@@ -395,7 +386,6 @@ def register_userbot_events(client, client_id):
                 pass
         active_tasks[task_key] = asyncio.create_task(loop_swipe())
 
-    # 🚀 /spam COMMAND: Sequential rotation across all active hosted accounts
     @client.on(events.NewMessage(pattern=rf"{P}spam\s+(.+)"))
     async def spam_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
