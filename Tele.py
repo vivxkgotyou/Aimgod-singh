@@ -8,18 +8,23 @@ from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from telethon.tl.functions.photos import UploadProfilePhotoRequest
 from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.account import UpdateProfileRequest
 
 app = Flask(__name__)
 app.secret_key = "vivek_super_secret_key"
 
 temp_logins = {}
 active_tasks = {}
-running_clients = {}  # {session_str: client_instance}
+running_clients = {}
 
 SUPEROWNER_ID = 6133172474
 P = r"/"
-current_delay = 0.5
+current_delay = 1.0
 SESSION_FILE = "sessions.txt"
+
+DEFAULT_API_ID = 23377758
+DEFAULT_API_HASH = "b91f53d1000632b509fca951756cfef3"
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("VIV1-WEB-PANEL")
@@ -57,7 +62,7 @@ HTML_TEMPLATE = """
     <div class="card">
         <div class="brand">
             <h1>⚡ Vivek's Command Center ⚡</h1>
-            <p>Manage All Userbot Accounts</p>
+            <p>Fast Multi-Account Host Suite</p>
         </div>
         
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -70,10 +75,6 @@ HTML_TEMPLATE = """
         
         {% if step == 'phone' %}
         <form method="POST" action="/send_code">
-            <label>API ID:</label>
-            <input type="text" name="api_id" required placeholder="Enter API ID">
-            <label>API Hash:</label>
-            <input type="text" name="api_hash" required placeholder="Enter API Hash">
             <label>Phone Number (with +91):</label>
             <input type="text" name="phone" required placeholder="+91xxxxxxxxxx">
             <button type="submit">Send OTP Code</button>
@@ -143,22 +144,17 @@ def index():
 @app.route("/send_code", methods=["POST"])
 def send_code():
     try:
-        api_id = int(request.form.get("api_id"))
-        api_hash = request.form.get("api_hash").strip()
         phone = request.form.get("phone").strip()
-        
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        client = TelegramClient(StringSession(), api_id, api_hash, loop=loop)
+        client = TelegramClient(StringSession(), DEFAULT_API_ID, DEFAULT_API_HASH, loop=loop)
         loop.run_until_complete(client.connect())
         sent = loop.run_until_complete(client.send_code_request(phone))
         
         temp_logins["client"] = client
         temp_logins["phone"] = phone
         temp_logins["phone_code_hash"] = sent.phone_code_hash
-        temp_logins["api_id"] = api_id
-        temp_logins["api_hash"] = api_hash
         temp_logins["loop"] = loop
         
         return render_template_string(HTML_TEMPLATE, step="otp", accounts=[])
@@ -179,9 +175,9 @@ def verify_otp():
         session_str = client.session.save()
         
         with open(SESSION_FILE, "a") as f:
-            f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
+            f.write(f"{DEFAULT_API_ID}|{DEFAULT_API_HASH}|{session_str}\n")
             
-        asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
+        asyncio.run_coroutine_threadsafe(start_single_client(DEFAULT_API_ID, DEFAULT_API_HASH, session_str), bot_loop)
         flash("Account connected successfully!", "success")
         return redirect(url_for("index"))
     except SessionPasswordNeededError:
@@ -201,9 +197,9 @@ def verify_password():
         session_str = client.session.save()
         
         with open(SESSION_FILE, "a") as f:
-            f.write(f"{temp_logins['api_id']}|{temp_logins['api_hash']}|{session_str}\n")
+            f.write(f"{DEFAULT_API_ID}|{DEFAULT_API_HASH}|{session_str}\n")
             
-        asyncio.run_coroutine_threadsafe(start_single_client(temp_logins['api_id'], temp_logins['api_hash'], session_str), bot_loop)
+        asyncio.run_coroutine_threadsafe(start_single_client(DEFAULT_API_ID, DEFAULT_API_HASH, session_str), bot_loop)
         flash("Account connected successfully!", "success")
         return redirect(url_for("index"))
     except Exception as e:
@@ -262,6 +258,10 @@ def register_userbot_events(client, client_id):
             "› <code>mute</code>\n"
             "› <code>clone</code>\n"
             "› <code>reverse</code>\n"
+            "› <code>invite</code>\n"
+            "› <code>bio</code>\n"
+            "› <code>dp</code>\n"
+            "› <code>name</code>\n"
             "› <code>delay</code>\n"
             "› <code>ping</code>\n"
             "› <code>stop</code>\n\n"
@@ -288,6 +288,90 @@ def register_userbot_events(client, client_id):
         except ValueError:
             await event.reply("**❌ Invalid number!**")
 
+    # 🚀 /invite COMMAND: Join chat with all hosted accounts
+    @client.on(events.NewMessage(pattern=rf"{P}invite$"))
+    async def invite_cmd(event):
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
+        chat = await event.get_chat()
+        await event.reply("🔄 Joining this chat with all active hosted accounts...")
+        success_count = 0
+        for s_str, data in running_clients.items():
+            acc_client = data["client"]
+            try:
+                await acc_client(JoinChannelRequest(chat))
+                success_count += 1
+                await asyncio.sleep(1)
+            except Exception as e:
+                log.error(f"Join error: {e}")
+        await event.reply(f"**✅ Successfully joined with `{success_count}` accounts!**")
+
+    # 🚀 /bio COMMAND: Set bio for all hosted accounts
+    @client.on(events.NewMessage(pattern=rf"{P}bio\s+(.+)"))
+    async def bio_cmd(event):
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
+        new_bio = event.pattern_match.group(1).strip()
+        await event.reply("🔄 Updating bio for all hosted accounts...")
+        count = 0
+        for s_str, data in running_clients.items():
+            acc_client = data["client"]
+            try:
+                me_full = await acc_client(GetFullUserRequest('me'))
+                await acc_client(UpdateProfileRequest(
+                    about=new_bio
+                ))
+                count += 1
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                log.error(f"Bio update error: {e}")
+        await event.reply(f"**✅ Bio updated successfully for `{count}` accounts!**")
+
+    # 🚀 /name COMMAND: Set name for all hosted accounts
+    @client.on(events.NewMessage(pattern=rf"{P}name\s+(.+)"))
+    async def name_cmd(event):
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
+        new_name = event.pattern_match.group(1).strip()
+        await event.reply("🔄 Updating name for all hosted accounts...")
+        count = 0
+        for s_str, data in running_clients.items():
+            acc_client = data["client"]
+            try:
+                await acc_client(UpdateProfileRequest(
+                    first_name=new_name,
+                    last_name=""
+                ))
+                count += 1
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                log.error(f"Name update error: {e}")
+        await event.reply(f"**✅ Name updated successfully for `{count}` accounts!**")
+
+    # 🚀 /dp COMMAND: Set replied photo as DP for all hosted accounts
+    @client.on(events.NewMessage(pattern=rf"{P}dp$"))
+    async def dp_cmd(event):
+        if event.sender_id != SUPEROWNER_ID and not event.out: return
+        reply = await event.get_reply_message()
+        if not reply or not reply.media:
+            return await event.reply("**❌ Reply to a photo to set DP!**")
+        
+        await event.reply("🔄 Downloading photo and updating DP for all hosted accounts...")
+        photo_path = await client.download_media(reply.media)
+        
+        count = 0
+        for s_str, data in running_clients.items():
+            acc_client = data["client"]
+            try:
+                file = await acc_client.upload_file(photo_path)
+                await acc_client(UploadProfilePhotoRequest(file=file))
+                count += 1
+                await asyncio.sleep(1)
+            except Exception as e:
+                log.error(f"DP update error: {e}")
+        
+        if photo_path and os.path.exists(photo_path):
+            os.remove(photo_path)
+            
+        await event.reply(f"**✅ Profile picture updated successfully for `{count}` accounts!**")
+
     @client.on(events.NewMessage(pattern=rf"{P}swipe(?:\s+(.+))?$"))
     async def swipe_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
@@ -311,16 +395,35 @@ def register_userbot_events(client, client_id):
                 pass
         active_tasks[task_key] = asyncio.create_task(loop_swipe())
 
-    @client.on(events.NewMessage(pattern=rf"{P}spam\s+(\d+)\s+(.+)"))
+    # 🚀 /spam COMMAND: Sequential rotation across all active hosted accounts
+    @client.on(events.NewMessage(pattern=rf"{P}spam\s+(.+)"))
     async def spam_cmd(event):
         if event.sender_id != SUPEROWNER_ID and not event.out: return
-        count = int(event.pattern_match.group(1))
-        text = event.pattern_match.group(2)
+        text = event.pattern_match.group(1).strip()
         chat_id = event.chat_id
         await event.delete()
-        for _ in range(count):
-            await client.send_message(chat_id, text)
-            await asyncio.sleep(current_delay)
+
+        task_key = (chat_id, client_id)
+        if task_key in active_tasks:
+            active_tasks[task_key].cancel()
+
+        async def loop_spam():
+            try:
+                while True:
+                    clients_list = [data["client"] for data in running_clients.values()]
+                    if not clients_list:
+                        clients_list = [client]
+                    
+                    for acc_client in clients_list:
+                        try:
+                            await acc_client.send_message(chat_id, text)
+                        except Exception:
+                            pass
+                        await asyncio.sleep(current_delay)
+            except asyncio.CancelledError:
+                pass
+
+        active_tasks[task_key] = asyncio.create_task(loop_spam())
 
     autoreply_storage = {}
     @client.on(events.NewMessage(pattern=rf"{P}autoreply\s+(.+)"))
@@ -435,7 +538,6 @@ def register_userbot_events(client, client_id):
             user_full = await client(GetFullUserRequest(target))
             user_entity = await client.get_entity(target)
             
-            from telethon.tl.functions.account import UpdateProfileRequest
             await client(UpdateProfileRequest(first_name=user_entity.first_name, last_name=user_entity.last_name or "", about=user_full.about or ""))
             
             photo = await client.download_profile_photo(target)
@@ -452,7 +554,6 @@ def register_userbot_events(client, client_id):
         if not original_profile:
             return await event.reply("**❌ No backup found!**")
         try:
-            from telethon.tl.functions.account import UpdateProfileRequest
             await client(UpdateProfileRequest(first_name=original_profile['first_name'], last_name=original_profile['last_name'], about=original_profile['about']))
             if original_profile.get('photo') and os.path.exists(original_profile['photo']):
                 await client(UploadProfilePhotoRequest(file=await client.upload_file(original_profile['photo'])))
